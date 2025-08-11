@@ -1,0 +1,31 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: stock-analysis-app
+
+# DeepSeek API配置
+deepseek:
+  api:
+    key: sk-2c60a0afb4004678be7c5703e940d360
+    base-url: https://api.deepseek.com
+    model: deepseek-reasoner
+
+# Python脚本路径配置
+python:
+  scripts:
+    path: python_scripts/
+    interpreter: python
+
+# 技术指标计算配置
+technical:
+  indicators:
+    max:
+      days: 500          # 最大K线数据天数
+      json-size: 100000   # 最大JSON大小(字符数)
+
+logging:
+  level:
+    com.stockanalysis: DEBUG
+    dev.langchain4j: DEBUG

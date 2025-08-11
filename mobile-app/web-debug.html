@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>股票分析助手 - Web调试版</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+        
+        .container {
+            max-width: 400px;
+            margin: 0 auto;
+            background: white;
+            min-height: 100vh;
+            box-shadow: 0 0 20px rgba(0,0,0,0.1);
+        }
+        
+        .header {
+            background: #2196F3;
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+        
+        .nav-tabs {
+            display: flex;
+            background: #fff;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        .nav-tab {
+            flex: 1;
+            padding: 15px;
+            text-align: center;
+            cursor: pointer;
+            border: none;
+            background: none;
+            color: #666;
+            transition: all 0.3s;
+        }
+        
+        .nav-tab.active {
+            color: #2196F3;
+            border-bottom: 2px solid #2196F3;
+        }
+        
+        .content {
+            padding: 20px;
+        }
+        
+        .card {
+            background: white;
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 16px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .input-group {
+            margin-bottom: 16px;
+        }
+        
+        .input-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+        }
+        
+        .input-group input {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+        
+        .btn {
+            background: #2196F3;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            width: 100%;
+            margin-bottom: 8px;
+        }
+        
+        .btn:hover {
+            background: #1976D2;
+        }
+        
+        .btn-outline {
+            background: transparent;
+            color: #2196F3;
+            border: 1px solid #2196F3;
+        }
+        
+        .btn-outline:hover {
+            background: #2196F3;
+            color: white;
+        }
+        
+        .result {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 16px;
+            margin-top: 16px;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+        }
+        
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+            border-radius: 4px;
+            padding: 12px;
+            margin-top: 16px;
+        }
+        
+        .success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+            border-radius: 4px;
+            padding: 12px;
+            margin-top: 16px;
+        }
+        
+        .stock-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .stock-item:last-child {
+            border-bottom: none;
+        }
+        
+        .stock-info h4 {
+            margin: 0 0 4px 0;
+            color: #333;
+        }
+        
+        .stock-info p {
+            margin: 0;
+            color: #666;
+            font-size: 14px;
+        }
+        
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📊 股票分析助手</h1>
+            <p>Web调试版本</p>
+        </div>
+        
+        <div class="nav-tabs">
+            <button class="nav-tab active" onclick="showTab('home')">首页</button>
+            <button class="nav-tab" onclick="showTab('search')">搜索</button>
+            <button class="nav-tab" onclick="showTab('analysis')">分析</button>
+            <button class="nav-tab" onclick="showTab('settings')">设置</button>
+        </div>
+        
+        <!-- 首页 -->
+        <div id="home" class="content">
+            <div class="card">
+                <h3>🚀 服务状态</h3>
+                <p id="service-status">检查中...</p>
+                <button class="btn-outline btn" onclick="checkServiceHealth()">检查服务状态</button>
+            </div>
+            
+            <div class="card">
+                <h3>📈 热门股票</h3>
+                <div id="popular-stocks">
+                    <div class="loading">加载中...</div>
+                </div>
+                <button class="btn-outline btn" onclick="loadPopularStocks()">刷新列表</button>
+            </div>
+        </div>
+        
+        <!-- 搜索页 -->
+        <div id="search" class="content hidden">
+            <div class="card">
+                <h3>🔍 股票搜索</h3>
+                <div class="input-group">
+                    <label for="search-input">输入股票代码或名称</label>
+                    <input type="text" id="search-input" placeholder="例如: 000001, 平安银行">
+                </div>
+                <button class="btn" onclick="searchStock()">搜索</button>
+                <div id="search-results"></div>
+            </div>
+        </div>
+        
+        <!-- 分析页 -->
+        <div id="analysis" class="content hidden">
+            <div class="card">
+                <h3>📊 股票分析</h3>
+                <div class="input-group">
+                    <label for="analysis-input">股票代码</label>
+                    <input type="text" id="analysis-input" placeholder="例如: 000001">
+                </div>
+                <button class="btn" onclick="analyzeStock('comprehensive')">综合分析</button>
+                <button class="btn-outline btn" onclick="analyzeStock('quick')">快速分析</button>
+                <button class="btn-outline btn" onclick="analyzeStock('risk')">风险评估</button>
+                <button class="btn" onclick="startAsyncAnalysis()" style="background: #FF9800;">异步分析 (推荐)</button>
+                <div id="analysis-results"></div>
+            </div>
+        </div>
+        
+        <!-- 设置页 -->
+        <div id="settings" class="content hidden">
+            <div class="card">
+                <h3>⚙️ 应用设置</h3>
+                <p><strong>版本:</strong> 1.0.0 (Web调试版)</p>
+                <p><strong>API网关:</strong> <span id="api-url">http://localhost:3001</span></p>
+                <p><strong>后端服务:</strong> http://localhost:8080</p>
+                <button class="btn-outline btn" onclick="testConnection()">测试连接</button>
+            </div>
+            
+            <div class="card">
+                <h3>📱 移动端调试选项</h3>
+                <p><strong>当前方案:</strong> Web浏览器调试</p>
+                <p><strong>其他选项:</strong></p>
+                <ul style="margin: 8px 0; padding-left: 20px;">
+                    <li>Android模拟器 (需要Android Studio)</li>
+                    <li>iOS模拟器 (需要Xcode, macOS)</li>
+                    <li>物理设备调试 (需要开发者模式)</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE_URL = 'http://localhost:3001';
+        
+        // 标签页切换
+        function showTab(tabName) {
+            // 隐藏所有内容
+            document.querySelectorAll('.content').forEach(content => {
+                content.classList.add('hidden');
+            });
+            
+            // 移除所有活动状态
+            document.querySelectorAll('.nav-tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            
+            // 显示选中的内容
+            document.getElementById(tabName).classList.remove('hidden');
+            event.target.classList.add('active');
+        }
+        
+        // 检查服务健康状态
+        async function checkServiceHealth() {
+            const statusElement = document.getElementById('service-status');
+            statusElement.textContent = '检查中...';
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/health`);
+                const data = await response.json();
+                
+                if (response.ok) {
+                    statusElement.innerHTML = `<span style="color: #4CAF50;">✅ 服务正常</span><br><small>时间: ${data.timestamp}</small>`;
+                } else {
+                    statusElement.innerHTML = `<span style="color: #F44336;">❌ 服务异常</span>`;
+                }
+            } catch (error) {
+                statusElement.innerHTML = `<span style="color: #F44336;">❌ 连接失败</span><br><small>${error.message}</small>`;
+            }
+        }
+        
+        // 加载热门股票
+        async function loadPopularStocks() {
+            const container = document.getElementById('popular-stocks');
+            container.innerHTML = '<div class="loading">加载中...</div>';
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/mobile/stocks/popular`);
+                const data = await response.json();
+                
+                if (data.success && data.data) {
+                    container.innerHTML = data.data.map(stock => `
+                        <div class="stock-item">
+                            <div class="stock-info">
+                                <h4>${stock.name} (${stock.code})</h4>
+                                <p>${stock.market === 'SH' ? '上海' : '深圳'}</p>
+                            </div>
+                            <button class="btn-outline" style="width: auto; padding: 8px 16px;" onclick="quickAnalyze('${stock.code}')">分析</button>
+                        </div>
+                    `).join('');
+                } else {
+                    container.innerHTML = '<div class="error">加载失败: ' + (data.message || '未知错误') + '</div>';
+                }
+            } catch (error) {
+                container.innerHTML = '<div class="error">网络错误: ' + error.message + '</div>';
+            }
+        }
+        
+        // 搜索股票
+        async function searchStock() {
+            const query = document.getElementById('search-input').value.trim();
+            const resultsContainer = document.getElementById('search-results');
+            
+            if (!query) {
+                resultsContainer.innerHTML = '<div class="error">请输入股票代码或名称</div>';
+                return;
+            }
+            
+            resultsContainer.innerHTML = '<div class="loading">搜索中...</div>';
+            
+            // 模拟搜索结果（实际应该调用搜索API）
+            setTimeout(() => {
+                resultsContainer.innerHTML = `
+                    <div class="result">
+                        <h4>搜索结果: "${query}"</h4>
+                        <p>在实际应用中，这里会显示匹配的股票列表</p>
+                        <button class="btn-outline btn" onclick="analyzeStock('quick', '${query}')">分析此股票</button>
+                    </div>
+                `;
+            }, 1000);
+        }
+        
+        // 股票分析
+        async function analyzeStock(type, stockCode = null) {
+            const code = stockCode || document.getElementById('analysis-input').value.trim();
+            const resultsContainer = document.getElementById('analysis-results');
+            
+            if (!code) {
+                resultsContainer.innerHTML = '<div class="error">请输入股票代码</div>';
+                return;
+            }
+            
+            resultsContainer.innerHTML = '<div class="loading">分析中...</div>';
+            
+            try {
+                let endpoint;
+                switch (type) {
+                    case 'comprehensive':
+                        endpoint = '/api/mobile/stock/analyze';
+                        break;
+                    case 'quick':
+                        endpoint = '/api/mobile/stock/quick-analyze';
+                        break;
+                    case 'risk':
+                        endpoint = '/api/mobile/stock/risk-assessment';
+                        break;
+                    default:
+                        endpoint = '/api/mobile/stock/quick-analyze';
+                }
+                
+                const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ stockCode: code }),
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    resultsContainer.innerHTML = `
+                        <div class="success">
+                            <h4>✅ 分析完成</h4>
+                            <p><strong>股票代码:</strong> ${data.stockCode || code}</p>
+                            <p><strong>分析类型:</strong> ${type === 'comprehensive' ? '综合分析' : type === 'quick' ? '快速分析' : '风险评估'}</p>
+                            <p><strong>时间:</strong> ${data.timestamp}</p>
+                            <div style="margin-top: 12px; padding: 12px; background: #f8f9fa; border-radius: 4px;">
+                                <pre style="white-space: pre-wrap; font-size: 14px;">${JSON.stringify(data, null, 2)}</pre>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    resultsContainer.innerHTML = '<div class="error">分析失败: ' + (data.message || '未知错误') + '</div>';
+                }
+            } catch (error) {
+                resultsContainer.innerHTML = '<div class="error">网络错误: ' + error.message + '</div>';
+            }
+        }
+        
+        // 快速分析（从热门股票列表调用）
+        async function quickAnalyze(stockCode) {
+            await analyzeStock('quick', stockCode);
+            showTab('analysis');
+            document.getElementById('analysis-input').value = stockCode;
+        }
+        
+        // 异步分析
+        async function startAsyncAnalysis() {
+            const code = document.getElementById('analysis-input').value.trim();
+            const resultsContainer = document.getElementById('analysis-results');
+            
+            if (!code) {
+                resultsContainer.innerHTML = '<div class="error">请输入股票代码</div>';
+                return;
+            }
+            
+            try {
+                // 启动异步分析任务
+                const response = await fetch(`${API_BASE_URL}/api/mobile/stock/analyze-async`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ stockCode: code }),
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    resultsContainer.innerHTML = `
+                        <div class="result">
+                            <h4>🚀 分析任务已启动</h4>
+                            <p><strong>任务ID:</strong> ${data.jobId}</p>
+                            <p><strong>预计时间:</strong> ${data.estimatedTime}</p>
+                            <div id="progress-container">
+                                <div style="background: #f0f0f0; border-radius: 10px; overflow: hidden; margin: 10px 0;">
+                                    <div id="progress-bar" style="background: #2196F3; height: 20px; width: 0%; transition: width 0.3s;"></div>
+                                </div>
+                                <p id="progress-text">准备中...</p>
+                            </div>
+                            <button class="btn-outline btn" onclick="cancelAsyncAnalysis('${data.jobId}')">取消分析</button>
+                        </div>
+                    `;
+                    
+                    // 开始轮询任务状态
+                    pollAnalysisStatus(data.jobId);
+                } else {
+                    resultsContainer.innerHTML = '<div class="error">启动分析任务失败: ' + (data.message || '未知错误') + '</div>';
+                }
+            } catch (error) {
+                resultsContainer.innerHTML = '<div class="error">网络错误: ' + error.message + '</div>';
+            }
+        }
+        
+        // 轮询分析状态
+        async function pollAnalysisStatus(jobId) {
+            const pollInterval = setInterval(async () => {
+                try {
+                    const response = await fetch(`${API_BASE_URL}/api/mobile/stock/analyze-status/${jobId}`);
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        // 更新进度条
+                        const progressBar = document.getElementById('progress-bar');
+                        const progressText = document.getElementById('progress-text');
+                        
+                        if (progressBar && progressText) {
+                            progressBar.style.width = data.progress + '%';
+                            progressText.textContent = `${data.message} (${data.progress}%)`;
+                        }
+                        
+                        // 检查是否完成
+                        if (data.status === 'completed') {
+                            clearInterval(pollInterval);
+                            displayAsyncResult(data);
+                        } else if (data.status === 'failed') {
+                            clearInterval(pollInterval);
+                            displayAsyncError(data);
+                        }
+                    }
+                } catch (error) {
+                    console.error('轮询状态失败:', error);
+                }
+            }, 2000); // 每2秒轮询一次
+            
+            // 5分钟后停止轮询
+            setTimeout(() => {
+                clearInterval(pollInterval);
+            }, 5 * 60 * 1000);
+        }
+        
+        // 显示异步分析结果
+        function displayAsyncResult(data) {
+            const resultsContainer = document.getElementById('analysis-results');
+            resultsContainer.innerHTML = `
+                <div class="success">
+                    <h4>✅ 分析完成</h4>
+                    <p><strong>股票代码:</strong> ${data.stockCode}</p>
+                    <p><strong>分析时长:</strong> ${Math.round(data.duration / 1000)}秒</p>
+                    <p><strong>完成时间:</strong> ${new Date(data.completedTime).toLocaleString()}</p>
+                    <div style="margin-top: 12px; padding: 12px; background: #f8f9fa; border-radius: 4px; max-height: 300px; overflow-y: auto;">
+                        <h5>分析结果:</h5>
+                        <pre style="white-space: pre-wrap; font-size: 14px;">${JSON.stringify(data.result, null, 2)}</pre>
+                    </div>
+                </div>
+            `;
+        }
+        
+        // 显示异步分析错误
+        function displayAsyncError(data) {
+            const resultsContainer = document.getElementById('analysis-results');
+            resultsContainer.innerHTML = `
+                <div class="error">
+                    <h4>❌ 分析失败</h4>
+                    <p><strong>股票代码:</strong> ${data.stockCode}</p>
+                    <p><strong>错误信息:</strong> ${data.message}</p>
+                    <p><strong>分析时长:</strong> ${Math.round(data.duration / 1000)}秒</p>
+                    <button class="btn-outline btn" onclick="startAsyncAnalysis()">重新分析</button>
+                </div>
+            `;
+        }
+        
+        // 取消异步分析
+        function cancelAsyncAnalysis(jobId) {
+            const resultsContainer = document.getElementById('analysis-results');
+            resultsContainer.innerHTML = `
+                <div class="result">
+                    <h4>⏹️ 分析已取消</h4>
+                    <p>任务ID: ${jobId}</p>
+                    <button class="btn-outline btn" onclick="startAsyncAnalysis()">重新开始</button>
+                </div>
+            `;
+        }
+        
+        // 测试连接
+        async function testConnection() {
+            await checkServiceHealth();
+        }
+        
+        // 页面加载时初始化
+        window.addEventListener('load', () => {
+            checkServiceHealth();
+            loadPopularStocks();
+        });
+    </script>
+</body>
+</html>

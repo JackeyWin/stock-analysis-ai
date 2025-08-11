@@ -1,0 +1,48 @@
+// Gradle全局初始化脚本 - 配置国内镜像仓库
+allprojects {
+    repositories {
+        // 移除所有默认仓库
+        all { ArtifactRepository repo ->
+            if (repo instanceof MavenArtifactRepository) {
+                def url = repo.url.toString()
+                if (url.startsWith('https://repo1.maven.org/maven2/') ||
+                        url.startsWith('https://jcenter.bintray.com/') ||
+                        url.startsWith('https://repo.maven.apache.org/maven2/')) {
+                    remove repo
+                }
+            }
+        }
+
+        // 添加国内镜像仓库（按优先级排序）
+        maven {
+            name 'Aliyun Public'
+            url 'https://maven.aliyun.com/repository/public/'
+        }
+        maven {
+            name 'Aliyun Spring'
+            url 'https://maven.aliyun.com/repository/spring/'
+        }
+        maven {
+            name 'Aliyun Spring Plugin'
+            url 'https://maven.aliyun.com/repository/spring-plugin/'
+        }
+        maven {
+            name 'Aliyun Gradle Plugin'
+            url 'https://maven.aliyun.com/repository/gradle-plugin/'
+        }
+        maven {
+            name 'Huawei Cloud'
+            url 'https://repo.huaweicloud.com/repository/maven/'
+        }
+        maven {
+            name 'Tencent Cloud'
+            url 'https://mirrors.cloud.tencent.com/nexus/repository/maven-public/'
+        }
+
+        // 备用官方仓库
+        mavenCentral()
+        gradlePluginPortal()
+    }
+
+
+}

@@ -1,0 +1,72 @@
+/*
+ * 用户级别的Gradle配置文件
+ *
+ * 使用方法：
+ * 1. 将此文件复制到用户目录下的 .gradle/init.d/ 文件夹中
+ * 2. Windows: C:\Users\{用户名}\.gradle\init.d\
+ * 3. Linux/Mac: ~/.gradle/init.d/
+ * 4. 重命名为 mirrors.gradle
+ *
+ * 这样所有Gradle项目都会自动使用国内镜像
+ */
+
+allprojects {
+    repositories {
+        // 移除默认的Maven Central和JCenter
+        all { ArtifactRepository repo ->
+            if (repo instanceof MavenArtifactRepository) {
+                def url = repo.url.toString()
+                if (url.startsWith('https://repo1.maven.org/maven2/') ||
+                        url.startsWith('https://jcenter.bintray.com/') ||
+                        url.startsWith('https://repo.maven.apache.org/maven2/')) {
+                    println "移除仓库: ${repo.name} - ${url}"
+                    remove repo
+                }
+            }
+        }
+
+        // 添加国内镜像仓库
+        maven {
+            name 'Aliyun Public'
+            url 'https://maven.aliyun.com/repository/public/'
+            println "添加阿里云公共仓库"
+        }
+        maven {
+            name 'Aliyun Spring'
+            url 'https://maven.aliyun.com/repository/spring/'
+        }
+        maven {
+            name 'Aliyun Spring Plugin'
+            url 'https://maven.aliyun.com/repository/spring-plugin/'
+        }
+        maven {
+            name 'Aliyun Gradle Plugin'
+            url 'https://maven.aliyun.com/repository/gradle-plugin/'
+        }
+        maven {
+            name 'Huawei Cloud'
+            url 'https://repo.huaweicloud.com/repository/maven/'
+        }
+        maven {
+            name 'Tencent Cloud'
+            url 'https://mirrors.cloud.tencent.com/nexus/repository/maven-public/'
+        }
+
+        // 备用官方仓库
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
+// 配置插件仓库
+settingsEvaluated { settings ->
+    settings.pluginManagement {
+        repositories {
+            maven { url 'https://maven.aliyun.com/repository/gradle-plugin/' }
+            maven { url 'https://maven.aliyun.com/repository/spring-plugin/' }
+            maven { url 'https://maven.aliyun.com/repository/public/' }
+            gradlePluginPortal()
+            mavenCentral()
+        }
+    }
+}

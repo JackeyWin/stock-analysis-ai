@@ -1,0 +1,36 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Node / React Native / Expo
+mobile-app/node_modules/
+mobile-app/.expo/
+mobile-app/.expo-shared/
+mobile-app/.cache/
+mobile-app/dist/
+mobile-app/build/
+mobile-app/web-build/
+mobile-app/.DS_Store
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Python
+__pycache__/
+*.pyc
+python_scripts/_test_output_indicators.json
+
+# Java / Gradle
+**/build/
+.gradle/
+**/.gradle/
+**/out/
+
+# IDE
+.idea/
+.vscode/
+
+

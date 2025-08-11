@@ -1,0 +1,517 @@
+package com.stockanalysis.service;
+
+import com.stockanalysis.model.*;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+/**
+ * 股票分析服务
+ */
+@Slf4j
+@Service
+public class StockAnalysisService {
+
+    private final PythonScriptService pythonScriptService;
+    private final AIAnalysisService aiAnalysisService;
+    private final ExecutorService executorService;
+
+    public StockAnalysisService(PythonScriptService pythonScriptService, 
+                               AIAnalysisService aiAnalysisService) {
+        this.pythonScriptService = pythonScriptService;
+        this.aiAnalysisService = aiAnalysisService;
+        this.executorService = Executors.newFixedThreadPool(6);
+    }
+
+    /**
+     * 执行完整的股票分析
+     */
+    public StockAnalysisResponse analyzeStock(StockAnalysisRequest request) {
+        String stockCode = request.getStockCode();
+        log.info("开始分析股票: {}", stockCode);
+
+        StockAnalysisResponse response = new StockAnalysisResponse();
+        response.setStockCode(stockCode);
+
+        try {
+            // 并行获取各种数据
+            CompletableFuture<List<Map<String, Object>>> stockDataFuture = 
+                CompletableFuture.supplyAsync(() -> pythonScriptService.getStockKlineData(stockCode), executorService);
+            
+            CompletableFuture<List<Map<String, Object>>> marketDataFuture = 
+                CompletableFuture.supplyAsync(() -> pythonScriptService.getMarketKlineData(stockCode), executorService);
+            
+            CompletableFuture<List<Map<String, Object>>> boardDataFuture = 
+                CompletableFuture.supplyAsync(() -> pythonScriptService.getBoardKlineData(stockCode), executorService);
+            
+            CompletableFuture<List<Map<String, Object>>> newsDataFuture = 
+                CompletableFuture.supplyAsync(() -> pythonScriptService.getNewsData(stockCode), executorService);
+            
+            CompletableFuture<List<Map<String, Object>>> moneyFlowDataFuture =
+                CompletableFuture.supplyAsync(() -> pythonScriptService.getMoneyFlowData(stockCode), executorService);
+            
+            CompletableFuture<List<Map<String, Object>>> marginTradingDataFuture =
+                CompletableFuture.supplyAsync(() -> pythonScriptService.getMarginTradingData(stockCode), executorService);
+            
+            CompletableFuture<Map<String, Object>> intradayAnalysisFuture =
+                CompletableFuture.supplyAsync(() -> pythonScriptService.getIntradayAnalysis(stockCode), executorService);
+
+            // 等待基础数据获取完成
+            List<Map<String, Object>> stockData = stockDataFuture.get();
+            List<Map<String, Object>> marketData = marketDataFuture.get();
+            List<Map<String, Object>> boardData = boardDataFuture.get();
+            List<Map<String, Object>> newsData = newsDataFuture.get();
+            List<Map<String, Object>> moneyFlowData = moneyFlowDataFuture.get();
+            List<Map<String, Object>> marginTradingData = marginTradingDataFuture.get();
+            Map<String, Object> intradayAnalysis = intradayAnalysisFuture.get();
+
+            log.info("基础数据获取完成，开始计算技术指标");
+
+            // 计算技术指标
+            Map<String, Object> technicalIndicators = pythonScriptService.calculateTechnicalIndicators(stockData);
+            Map<String, Object> marketTechnicalIndicators = pythonScriptService.calculateTechnicalIndicators(marketData);
+            Map<String, Object> boardTechnicalIndicators = pythonScriptService.calculateTechnicalIndicators(boardData);
+
+            log.info("技术指标计算完成，开始AI分析");
+
+            // 进行AI分析（包含分时数据分析）
+            AIAnalysisResult aiAnalysisResult = aiAnalysisService.analyzeStock(
+                    stockCode, stockData, marketTechnicalIndicators, boardTechnicalIndicators,
+                    technicalIndicators, newsData, moneyFlowData, marginTradingData, intradayAnalysis);
+
+            // 组装响应数据
+            response.setStockData(convertToStockDataList(stockData));
+            response.setMarketData(convertToStockDataList(marketData));
+            response.setBoardData(convertToStockDataList(boardData));
+            response.setTechnicalIndicators(convertToTechnicalIndicators(technicalIndicators));
+            response.setNewsData(convertToNewsDataList(newsData));
+            response.setMoneyFlowData(convertToMoneyFlowData(moneyFlowData));
+            response.setMarginTradingData(convertToMarginTradingData(marginTradingData));
+            response.setAiAnalysisResult(aiAnalysisResult);
+
+            log.info("股票分析完成: {}", stockCode);
+
+        } catch (Exception e) {
+            log.error("股票分析失败: {}", e.getMessage(), e);
+            response.setSuccess(false);
+            response.setMessage("分析失败: " + e.getMessage());
+        }
+
+        return response;
+    }
+
+    /**
+     * 获取技术指标
+     */
+    public Map<String, Object> getTechnicalIndicators(String stockCode) {
+        List<Map<String, Object>> stockData = pythonScriptService.getStockKlineData(stockCode);
+        return pythonScriptService.calculateTechnicalIndicators(stockData);
+    }
+
+    /**
+     * 快速分析
+     */
+    public AIAnalysisResult quickAnalyze(String stockCode, Map<String, Object> technicalIndicators) {
+        return aiAnalysisService.quickAnalyze(stockCode, technicalIndicators);
+    }
+
+    /**
+     * 风险评估
+     */
+    public String assessRisk(String stockCode) {
+        try {
+            // 获取必要数据
+            List<Map<String, Object>> stockData = pythonScriptService.getStockKlineData(stockCode);
+            Map<String, Object> technicalIndicators = pythonScriptService.calculateTechnicalIndicators(stockData);
+            List<Map<String, Object>> moneyFlowData = pythonScriptService.getMoneyFlowData(stockCode);
+            List<Map<String, Object>> marginTradingData = pythonScriptService.getMarginTradingData(stockCode);
+
+            return aiAnalysisService.assessRisk(stockCode, technicalIndicators, moneyFlowData, marginTradingData);
+        } catch (Exception e) {
+            log.error("风险评估失败: {}", e.getMessage(), e);
+            throw new RuntimeException("风险评估失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 转换为StockData列表
+     */
+    private List<StockData> convertToStockDataList(List<Map<String, Object>> rawData) {
+        return rawData.stream()
+                .map(this::convertToStockData)
+                .toList();
+    }
+
+    /**
+     * 转换为StockData对象
+     */
+    private StockData convertToStockData(Map<String, Object> rawData) {
+        StockData stockData = new StockData();
+        stockData.setDate((String) rawData.get("d"));
+        stockData.setOpen(((Number) rawData.get("o")).doubleValue());
+        stockData.setClose(((Number) rawData.get("c")).doubleValue());
+        stockData.setHigh(((Number) rawData.get("h")).doubleValue());
+        stockData.setLow(((Number) rawData.get("l")).doubleValue());
+        stockData.setVolume((String) rawData.get("v"));
+        stockData.setTurnover((String) rawData.get("tu"));
+        return stockData;
+    }
+
+    /**
+     * 转换为TechnicalIndicators对象
+     */
+    private TechnicalIndicators convertToTechnicalIndicators(Map<String, Object> rawData) {
+        TechnicalIndicators indicators = new TechnicalIndicators();
+
+        try {
+            // 从原始数据中提取技术指标
+            // 基于实际的中文字段名数据格式
+            
+            // 提取核心指标
+            @SuppressWarnings("unchecked")
+            Map<String, Object> coreIndicators = (Map<String, Object>) rawData.get("核心指标");
+            
+            if (coreIndicators != null) {
+                // 注意：这些数据主要用于AI分析，不直接映射到DailyIndicators
+                // DailyIndicators的数据来源于"近5日指标"
+            }
+            
+            // 提取"近5日指标"数据
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> recent5DaysIndicators = (List<Map<String, Object>>) rawData.get("近5日指标");
+            
+            if (recent5DaysIndicators != null && !recent5DaysIndicators.isEmpty()) {
+                extractFromRecentDaysData(indicators, recent5DaysIndicators);
+            } else {
+                log.warn("未找到近5日指标数据，技术指标将为空");
+            }
+            
+        } catch (Exception e) {
+            log.error("转换技术指标数据失败: {}", e.getMessage(), e);
+        }
+        
+        return indicators;
+    }
+
+    /**
+     * 转换为NewsData列表
+     */
+    private List<NewsData> convertToNewsDataList(List<Map<String, Object>> rawData) {
+        return rawData.stream()
+                .map(this::convertToNewsData)
+                .toList();
+    }
+
+    /**
+     * 转换为NewsData对象
+     */
+    private NewsData convertToNewsData(Map<String, Object> rawData) {
+        NewsData newsData = new NewsData();
+        
+        // 基础信息
+        newsData.setTitle((String) rawData.get("新闻标题"));
+        newsData.setContent((String) rawData.get("新闻内容"));
+        newsData.setSummary((String) rawData.get("新闻摘要"));
+        newsData.setSource((String) rawData.get("来源媒体"));
+        newsData.setUrl((String) rawData.get("原文链接"));
+        
+        // 发布时间处理
+        String publishDateStr = (String) rawData.get("发布日期");
+        if (publishDateStr != null && !publishDateStr.isEmpty()) {
+            try {
+                newsData.setPublishTime(LocalDateTime.parse(publishDateStr, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+            } catch (Exception e) {
+                log.warn("无法解析发布日期: {}", publishDateStr);
+            }
+        }
+        
+        // 情感分析信息
+        newsData.setSentiment((String) rawData.get("情感标签"));
+        
+        Object sentimentScoreObj = rawData.get("情感评分");
+        if (sentimentScoreObj instanceof Number) {
+            newsData.setSentimentScore(((Number) sentimentScoreObj).doubleValue());
+        }
+        
+        // 关键词列表
+        @SuppressWarnings("unchecked")
+        List<String> positiveKeywords = (List<String>) rawData.get("利好关键词");
+        if (positiveKeywords != null) {
+            newsData.setPositiveKeywords(positiveKeywords);
+        }
+        
+        @SuppressWarnings("unchecked")
+        List<String> negativeKeywords = (List<String>) rawData.get("利空关键词");
+        if (negativeKeywords != null) {
+            newsData.setNegativeKeywords(negativeKeywords);
+        }
+        
+        newsData.setAnalysisSummary((String) rawData.get("分析摘要"));
+        
+        return newsData;
+    }
+
+    /**
+     * 转换为MoneyFlowData对象
+     */
+    private MoneyFlowData convertToMoneyFlowData(List<Map<String, Object>> rawData) {
+        MoneyFlowData moneyFlowData = new MoneyFlowData();
+
+        try {
+            if (rawData != null && !rawData.isEmpty()) {
+                // 从第一个元素中提取数据（基于您提供的数据格式）
+                Map<String, Object> stockData = rawData.get(0);
+                
+                // 提取资金数据
+                @SuppressWarnings("unchecked")
+                Map<String, Object> fundData = (Map<String, Object>) stockData.get("资金数据");
+                
+                if (fundData != null) {
+                    List<MoneyFlowData.DailyMoneyFlow> dailyFlows = new java.util.ArrayList<>();
+                    
+                    // 处理今日数据
+                    @SuppressWarnings("unchecked")
+                    List<Map<String, Object>> todayData = (List<Map<String, Object>>) fundData.get("今日");
+                    if (todayData != null) {
+                        MoneyFlowData.DailyMoneyFlow todayFlow = createDailyMoneyFlow("今日", todayData);
+                        if (todayFlow != null) {
+                            dailyFlows.add(todayFlow);
+                        }
+                    }
+                    
+                    // 处理5日数据
+                    @SuppressWarnings("unchecked")
+                    List<Map<String, Object>> fiveDayData = (List<Map<String, Object>>) fundData.get("5日");
+                    if (fiveDayData != null) {
+                        MoneyFlowData.DailyMoneyFlow fiveDayFlow = createDailyMoneyFlow("5日", fiveDayData);
+                        if (fiveDayFlow != null) {
+                            dailyFlows.add(fiveDayFlow);
+                        }
+                    }
+                    
+                    // 处理10日数据
+                    @SuppressWarnings("unchecked")
+                    List<Map<String, Object>> tenDayData = (List<Map<String, Object>>) fundData.get("10日");
+                    if (tenDayData != null) {
+                        MoneyFlowData.DailyMoneyFlow tenDayFlow = createDailyMoneyFlow("10日", tenDayData);
+                        if (tenDayFlow != null) {
+                            dailyFlows.add(tenDayFlow);
+                        }
+                    }
+                    
+                    moneyFlowData.setDailyFlows(dailyFlows);
+                }
+            }
+        } catch (Exception e) {
+            log.error("转换资金流向数据失败: {}", e.getMessage(), e);
+        }
+        
+        return moneyFlowData;
+    }
+    
+    /**
+     * 创建每日资金流向对象
+     */
+    private MoneyFlowData.DailyMoneyFlow createDailyMoneyFlow(String period, List<Map<String, Object>> flowData) {
+        if (flowData == null || flowData.isEmpty()) {
+            return null;
+        }
+        
+        MoneyFlowData.DailyMoneyFlow dailyFlow = new MoneyFlowData.DailyMoneyFlow();
+        dailyFlow.setDate(period);
+        
+        try {
+            // 查找主力资金数据
+            for (Map<String, Object> item : flowData) {
+                String fundType = (String) item.get("资金类型");
+                if ("主力".equals(fundType)) {
+                    Object netInflowObj = item.get("净流入额");
+                    if (netInflowObj instanceof Number) {
+                        dailyFlow.setMainInflow(((Number) netInflowObj).doubleValue());
+                    }
+                    Object ratioObj = item.get("净占比");
+                    if (ratioObj instanceof Number) {
+                        dailyFlow.setInflowRatio(((Number) ratioObj).doubleValue());
+                    }
+                    break;
+                }
+            }
+            
+            // 计算总净流入（这里简化为主力净流入）
+            if (dailyFlow.getMainInflow() != null) {
+                dailyFlow.setTotalInflow(dailyFlow.getMainInflow());
+            }
+            
+        } catch (Exception e) {
+            log.error("创建每日资金流向对象失败: {}", e.getMessage(), e);
+            return null;
+        }
+        
+        return dailyFlow;
+    }
+
+    /**
+     * 转换为MarginTradingData对象
+     */
+    private MarginTradingData convertToMarginTradingData(List<Map<String, Object>> rawData) {
+        MarginTradingData marginTradingData = new MarginTradingData();
+
+        try {
+            if (rawData != null && !rawData.isEmpty()) {
+                List<MarginTradingData.DailyMarginData> dailyDataList = new java.util.ArrayList<>();
+                
+                // 遍历每日数据
+                for (Map<String, Object> dayData : rawData) {
+                    MarginTradingData.DailyMarginData dailyMarginData = new MarginTradingData.DailyMarginData();
+                    
+                    // 提取日期
+                    Object dateObj = dayData.get("日期");
+                    if (dateObj != null) {
+                        dailyMarginData.setDate(dateObj.toString());
+                    }
+                    
+                    // 提取融资余额
+                    Object marginBalanceObj = dayData.get("融资余额");
+                    if (marginBalanceObj instanceof Number) {
+                        dailyMarginData.setMarginBalance(((Number) marginBalanceObj).doubleValue());
+                    }
+                    
+                    // 提取融券余额
+                    Object shortBalanceObj = dayData.get("融券余额");
+                    if (shortBalanceObj instanceof Number) {
+                        dailyMarginData.setShortBalance(((Number) shortBalanceObj).doubleValue());
+                    }
+                    
+                    // 提取融资买入额
+                    Object marginBuyAmountObj = dayData.get("融资买入额");
+                    if (marginBuyAmountObj instanceof Number) {
+                        dailyMarginData.setMarginBuyAmount(((Number) marginBuyAmountObj).doubleValue());
+                    }
+                    
+                    // 提取融券卖出量
+                    Object shortSellAmountObj = dayData.get("融券卖出量");
+                    if (shortSellAmountObj instanceof Number) {
+                        dailyMarginData.setShortSellAmount(((Number) shortSellAmountObj).doubleValue());
+                    }
+                    
+                    // 提取融资偿还额
+                    Object marginRepayAmountObj = dayData.get("融资偿还额");
+                    if (marginRepayAmountObj instanceof Number) {
+                        dailyMarginData.setMarginRepayAmount(((Number) marginRepayAmountObj).doubleValue());
+                    }
+                    
+                    // 提取融券偿还量
+                    Object shortRepayAmountObj = dayData.get("融券偿还量");
+                    if (shortRepayAmountObj instanceof Number) {
+                        dailyMarginData.setShortRepayAmount(((Number) shortRepayAmountObj).doubleValue());
+                    }
+                    
+                    // 提取融资净买入额
+                    Object netMarginAmountObj = dayData.get("融资净买入额");
+                    if (netMarginAmountObj instanceof Number) {
+                        dailyMarginData.setNetMarginAmount(((Number) netMarginAmountObj).doubleValue());
+                    }
+                    
+                    // 提取融券净卖出额
+                    Object netShortAmountObj = dayData.get("融券净卖出");
+                    if (netShortAmountObj instanceof Number) {
+                        dailyMarginData.setNetShortAmount(((Number) netShortAmountObj).doubleValue());
+                    }
+                    
+                    dailyDataList.add(dailyMarginData);
+                }
+                
+                marginTradingData.setDailyData(dailyDataList);
+            }
+        } catch (Exception e) {
+            log.error("转换融资融券数据失败: {}", e.getMessage(), e);
+        }
+        
+        return marginTradingData;
+    }
+    
+
+    
+    /**
+     * 从近5日指标数据中提取技术指标
+     */
+    private void extractFromRecentDaysData(TechnicalIndicators indicators, List<Map<String, Object>> recentDaysData) {
+        try {
+            List<TechnicalIndicators.DailyIndicators> dailyIndicatorsList = new java.util.ArrayList<>();
+            
+            for (Map<String, Object> dayData : recentDaysData) {
+                // 创建每日指标对象
+                TechnicalIndicators.DailyIndicators dailyIndicators = new TechnicalIndicators.DailyIndicators();
+                
+                // 设置基本信息
+                dailyIndicators.setDate((String) dayData.get("date"));
+                dailyIndicators.setClose(getDoubleValue(dayData.get("close")));
+                dailyIndicators.setVolume(getDoubleValue(dayData.get("volume")));
+                
+                // 设置移动平均线
+                dailyIndicators.setMa5(getDoubleValue(dayData.get("ma5")));
+                dailyIndicators.setMa10(getDoubleValue(dayData.get("ma10")));
+                dailyIndicators.setMa20(getDoubleValue(dayData.get("ma20")));
+                dailyIndicators.setMa60(getDoubleValue(dayData.get("ma60")));
+                
+                // 设置技术指标
+                dailyIndicators.setRsi(getDoubleValue(dayData.get("rsi")));
+                dailyIndicators.setMacd(getDoubleValue(dayData.get("macd")));
+                dailyIndicators.setMacdSignal(getDoubleValue(dayData.get("macd_signal")));
+                dailyIndicators.setMacdHist(getDoubleValue(dayData.get("macd_hist")));
+                
+                // 设置布林带
+                dailyIndicators.setBollingerUpper(getDoubleValue(dayData.get("bollinger_upper")));
+                dailyIndicators.setBollingerMiddle(getDoubleValue(dayData.get("bollinger_middle")));
+                dailyIndicators.setBollingerLower(getDoubleValue(dayData.get("bollinger_lower")));
+                
+                // 设置KDJ
+                dailyIndicators.setKdjK(getDoubleValue(dayData.get("kdj_k")));
+                dailyIndicators.setKdjD(getDoubleValue(dayData.get("kdj_d")));
+                dailyIndicators.setKdjJ(getDoubleValue(dayData.get("kdj_j")));
+                
+                dailyIndicatorsList.add(dailyIndicators);
+            }
+            
+            // 设置日期映射格式
+            indicators.setDailyIndicators(dailyIndicatorsList);
+            
+        } catch (Exception e) {
+            log.error("从近5日指标数据提取失败: {}", e.getMessage(), e);
+        }
+    }
+    
+
+    
+
+    
+    /**
+     * 安全地获取Double值
+     */
+    private Double getDoubleValue(Object value) {
+        if (value == null) {
+            return null;
+        }
+        
+        if (value instanceof Number) {
+            return ((Number) value).doubleValue();
+        } else if (value instanceof String) {
+            try {
+                return Double.parseDouble((String) value);
+            } catch (NumberFormatException e) {
+                log.warn("无法转换字符串为Double: {}", value);
+                return null;
+            }
+        }
+        
+        return null;
+    }
+}

@@ -12,7 +12,14 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "deploymentTarget": "13.4"
+      "deploymentTarget": "13.4",
+      "bundleIdentifier": "com.jackeywin.stockanalysis",
+      "buildNumber": "1",
+      "infoPlist": {
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true
+        }
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -20,7 +27,10 @@
       },
       "compileSdkVersion": 35,
       "targetSdkVersion": 35,
-      "minSdkVersion": 23
+      "minSdkVersion": 23,
+      "package": "com.jackeywin.stockanalysis",
+      "versionCode": 1,
+      "usesCleartextTraffic": true
     },
     "web": {
       "bundler": "metro"

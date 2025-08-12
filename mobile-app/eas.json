@@ -3,24 +3,23 @@
     "version": ">= 10.0.0"
   },
   "build": {
-    "android": {
-      "release": {
-        "workflow": "managed",
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal"
+    },
+    "preview": {
+      "distribution": "internal",
+      "android": {
         "buildType": "apk"
       }
     },
-    "ios": {
-      "release": {
-        "workflow": "managed"
+    "production": {
+      "android": {
+        "buildType": "apk"
       }
     }
   },
   "submit": {
-    "android": {
-      "track": "internal"
-    },
-    "ios": {
-      "ascAppId": ""
-    }
+    "production": {}
   }
 }

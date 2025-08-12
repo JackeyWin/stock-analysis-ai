@@ -391,7 +391,38 @@ public class PythonScriptService {
      */
     public List<Map<String, Object>> getNewsData(String stockCode) {
         try {
-            String result = executePythonScript("EasyMoneyNewsData.py", stockCode);
+            // 获取基础数据以便传入中文名/别名
+            Map<String, Object> basic = getStockBasicData(stockCode);
+            String targetName = null;
+            String aliases = null;
+            if (basic != null) {
+                Object n = basic.get("stockName");
+                if (n instanceof String && !((String) n).isEmpty()) {
+                    targetName = (String) n;
+                }
+                // 简单提取简称：去除“股份有限公司”等，或留空
+                Object companyName = basic.get("companyName");
+                if (companyName instanceof String && !((String) companyName).isEmpty()) {
+                    String shortAlias = ((String) companyName)
+                        .replace("股份有限公司", "")
+                        .replace("有限公司", "")
+                        .replace("股份", "")
+                        .trim();
+                    if (!shortAlias.isEmpty() && (targetName == null || !shortAlias.equals(targetName))) {
+                        aliases = shortAlias; // 逗号分隔可扩展
+                    }
+                }
+            }
+
+            // 传入：stockCode, crawl_content(true), max_pages(1), targetName, aliases
+            String result = executePythonScript(
+                "EasyMoneyNewsData.py",
+                stockCode,
+                "true",
+                "1",
+                targetName == null ? "" : targetName,
+                aliases == null ? "" : aliases
+            );
             
             // 验证JSON格式
             if (result == null || result.trim().isEmpty()) {
@@ -462,12 +493,46 @@ public class PythonScriptService {
                 return new HashMap<>(); // 返回空结果而不是报错
             }
             
+            // 获取股票基础数据
+            Map<String, Object> basicData = getStockBasicData(stockCode);
+            if (basicData != null && !basicData.isEmpty()) {
+                analysisResult.put("stockBasic", basicData);
+            }
+            
             log.debug("分时数据分析完成，股票代码: {}", stockCode);
             return analysisResult;
             
         } catch (Exception e) {
             log.warn("获取股票 {} 分时数据分析失败: {}，返回空结果", stockCode, e.getMessage());
             return new HashMap<>(); // 返回空结果而不是报错
+        }
+    }
+    
+    /**
+     * 获取股票基础数据
+     */
+    public Map<String, Object> getStockBasicData(String stockCode) {
+        try {
+            log.debug("开始获取股票 {} 的基础数据", stockCode);
+            String result = executePythonScript("EastMoneyStockBasic.py", stockCode);
+            
+            // 验证JSON格式
+            if (result == null || result.trim().isEmpty()) {
+                log.warn("股票 {} 基础数据脚本返回空结果", stockCode);
+                return null;
+            }
+            
+            // 清理JSON字符串
+            result = cleanJsonString(result);
+            
+            Map<String, Object> basicData = objectMapper.readValue(result, new TypeReference<Map<String, Object>>() {});
+            
+            log.debug("股票基础数据获取完成，股票代码: {}", stockCode);
+            return basicData;
+            
+        } catch (Exception e) {
+            log.warn("获取股票 {} 基础数据失败: {}，返回null", stockCode, e.getMessage());
+            return null;
         }
     }
 }

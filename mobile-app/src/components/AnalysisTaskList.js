@@ -19,6 +19,9 @@ const AnalysisTaskList = React.forwardRef(({ stockCode, onTaskComplete, onViewRe
   const [loading, setLoading] = useState(true);
   const pollingRefs = useRef(new Map());
   const apiService = useRef(ApiService);
+  
+  // 每只股票的轮询状态管理
+  const stockPollingStates = useRef(new Map());
 
   // 暴露方法给父组件
   useImperativeHandle(ref, () => ({
@@ -104,27 +107,40 @@ const AnalysisTaskList = React.forwardRef(({ stockCode, onTaskComplete, onViewRe
         console.log('🔄 使用后端数据更新本地任务');
       }
       
-      console.log('📊 最终任务列表:', finalTasks.length, '个任务');
+      console.log('📊 最终任务列表(去重前):', finalTasks.length, '个任务');
       if (finalTasks.length > 0) {
-        console.log('📋 最终任务详情:', finalTasks.map(t => ({ 
+        console.log('📋 去重前任务详情:', finalTasks.map(t => ({ 
           stockCode: t.stockCode, 
           taskId: t.taskId, 
           status: t.status 
         })));
       }
-      
-      setTasks(finalTasks);
+
+      // 根据股票代码去重，保留最新的一条（假设列表是按新→旧排序）
+      const seenCodes = new Set();
+      const dedupedTasks = [];
+      for (const t of finalTasks) {
+        if (!seenCodes.has(t.stockCode)) {
+          seenCodes.add(t.stockCode);
+          dedupedTasks.push(t);
+        }
+      }
+
+      console.log('📊 最终任务列表(去重后):', dedupedTasks.length, '个任务');
+      setTasks(dedupedTasks);
+      // 同步更新本地存储
+      saveTasksToStorage(dedupedTasks);
       
       // 重新开始进行中任务的轮询
       const processingTasks = finalTasks.filter(task => 
         task.status === 'pending' || task.status === 'processing'
       );
       
-      console.log('🔄 重新开始轮询的任务数:', processingTasks.length);
-      processingTasks.forEach(task => {
-        console.log('🔄 开始轮询任务:', task.stockCode, task.taskId);
-        startPolling(task.taskId);
-      });
+             console.log('🔄 重新开始轮询的任务数:', processingTasks.length);
+       processingTasks.forEach(task => {
+         console.log('🔄 开始轮询任务:', task.stockCode, task.taskId);
+         startPolling(task.taskId, task.stockCode);
+       });
       
     } catch (error) {
       console.error('❌ 加载任务失败:', error);
@@ -176,9 +192,18 @@ const AnalysisTaskList = React.forwardRef(({ stockCode, onTaskComplete, onViewRe
       
       console.log('📝 创建新任务对象:', newTask);
       
-      // 使用函数式更新确保获取到最新的tasks状态
+      // 若同股票已有旧任务，先停止其轮询并在列表中移除（保持只保留最新的一条）
+      try {
+        const sameCodeTasks = tasks.filter(t => t.stockCode === stockCode);
+        sameCodeTasks.forEach(t => stopPolling(t.taskId));
+      } catch (e) {
+        console.warn('停止旧任务轮询时出现问题:', e?.message || e);
+      }
+
+      // 使用函数式更新确保获取到最新的tasks状态，同时移除相同股票的旧记录
       setTasks(prevTasks => {
-        const updatedTasks = [newTask, ...prevTasks];
+        const filtered = prevTasks.filter(t => t.stockCode !== stockCode);
+        const updatedTasks = [newTask, ...filtered];
         console.log('📊 更新任务列表，当前任务数:', updatedTasks.length);
         console.log('📋 任务列表:', updatedTasks.map(t => ({ stockCode: t.stockCode, taskId: t.taskId })));
         
@@ -187,9 +212,12 @@ const AnalysisTaskList = React.forwardRef(({ stockCode, onTaskComplete, onViewRe
         
         return updatedTasks;
       });
-      
-      console.log('🔄 开始轮询任务:', newTask.taskId);
-      startPolling(newTask.taskId);
+       
+       // 等待状态更新后再开始轮询
+       setTimeout(() => {
+         console.log('🔄 开始轮询任务:', newTask.taskId);
+         startPolling(newTask.taskId, newTask.stockCode);
+       }, 100);
       
       return newTask;
     } catch (error) {
@@ -200,19 +228,68 @@ const AnalysisTaskList = React.forwardRef(({ stockCode, onTaskComplete, onViewRe
   };
 
   // 开始轮询任务状态
-  const startPolling = (taskId) => {
+  const startPolling = (taskId, stockCodeParam = null) => {
     if (pollingRefs.current.has(taskId)) {
       return; // 已经在轮询中
     }
 
-    const pollInterval = setInterval(async () => {
+    // 获取任务信息以确定股票代码
+    let taskStockCode = stockCodeParam;
+    if (!taskStockCode) {
+      const task = tasks.find(t => t.taskId === taskId);
+      if (!task) {
+        console.error(`❌ 找不到任务 ${taskId}，当前任务列表:`, tasks.map(t => ({ taskId: t.taskId, stockCode: t.stockCode })));
+        return;
+      }
+      taskStockCode = task.stockCode;
+    }
+
+    const stockCode = taskStockCode;
+    
+    // 获取或创建该股票的轮询状态
+    if (!stockPollingStates.current.has(stockCode)) {
+      stockPollingStates.current.set(stockCode, {
+        lastPollTime: 0,
+        consecutiveErrors: 0,
+        currentDelay: 8000, // 初始8秒
+        activeTasks: new Set()
+      });
+    }
+    
+    const stockState = stockPollingStates.current.get(stockCode);
+    stockState.activeTasks.add(taskId);
+
+    const poll = async () => {
       try {
+        // 检查该股票是否需要等待
+        const now = Date.now();
+        const timeSinceLastPoll = now - stockState.lastPollTime;
+        const minInterval = 3000; // 每只股票最小间隔3秒
+        
+        if (timeSinceLastPoll < minInterval) {
+          const waitTime = minInterval - timeSinceLastPoll;
+          console.log(`⏳ 股票 ${stockCode} 等待 ${waitTime}ms 后继续轮询`);
+          setTimeout(poll, waitTime);
+          return;
+        }
+        
+        stockState.lastPollTime = now;
+        console.log(`🔍 轮询股票 ${stockCode} 的任务 ${taskId}`);
+        
         const status = await apiService.current.getAnalysisStatus(taskId);
+        
+        // 重置错误计数和延迟
+        stockState.consecutiveErrors = 0;
+        stockState.currentDelay = 8000;
         
         setTasks(prev => {
           const updatedTasks = prev.map(task => {
             if (task.taskId !== taskId) return task;
             const merged = { ...task, ...status };
+            // 兼容后端未返回顶层 stockName 的情况，从 result.stockBasic 中回填
+            if (!merged.stockName) {
+              merged.stockName = status.stockName || status.result?.stockBasic?.stockName || task.stockName;
+            }
             if ((status.status === 'completed' || status.status === 'failed') && !merged.endTime) {
               merged.endTime = new Date();
             }
@@ -227,30 +304,79 @@ const AnalysisTaskList = React.forwardRef(({ stockCode, onTaskComplete, onViewRe
 
         // 如果任务完成或失败，停止轮询
         if (status.status === 'completed' || status.status === 'failed') {
-          clearInterval(pollInterval);
+          clearTimeout(pollingRefs.current.get(taskId));
           pollingRefs.current.delete(taskId);
+          stockState.activeTasks.delete(taskId);
+          
+          // 如果没有活跃任务，清理股票状态
+          if (stockState.activeTasks.size === 0) {
+            stockPollingStates.current.delete(stockCode);
+          }
           
           if (status.status === 'completed' && onTaskComplete) {
             onTaskComplete(status);
           }
+        } else {
+          // 继续轮询，使用该股票的当前延迟
+          const nextPoll = setTimeout(poll, stockState.currentDelay);
+          pollingRefs.current.set(taskId, nextPoll);
         }
       } catch (error) {
-        console.error(`轮询任务 ${taskId} 状态失败:`, error);
-        // 错误时也停止轮询
-        clearInterval(pollInterval);
-        pollingRefs.current.delete(taskId);
+        stockState.consecutiveErrors++;
+        console.error(`轮询股票 ${stockCode} 任务 ${taskId} 失败 (第${stockState.consecutiveErrors}次):`, error);
+        
+        // 处理速率限制错误
+        if (error.response?.status === 429 || error.message?.includes('RATE_LIMIT_EXCEEDED')) {
+          console.warn(`⚠️ 股票 ${stockCode} 速率限制，增加轮询间隔到 ${stockState.currentDelay * 2}ms`);
+          stockState.currentDelay = Math.min(stockState.currentDelay * 2, 30000); // 最大30秒
+        } else {
+          // 其他错误，适度增加延迟
+          stockState.currentDelay = Math.min(stockState.currentDelay * 1.5, 15000); // 最大15秒
+        }
+        
+        // 如果连续错误太多，停止轮询
+        if (stockState.consecutiveErrors >= 10) {
+          console.error(`❌ 股票 ${stockCode} 连续错误过多，停止轮询`);
+          clearTimeout(pollingRefs.current.get(taskId));
+          pollingRefs.current.delete(taskId);
+          stockState.activeTasks.delete(taskId);
+          
+          // 清理股票状态
+          if (stockState.activeTasks.size === 0) {
+            stockPollingStates.current.delete(stockCode);
+          }
+          return;
+        }
+        
+        // 继续轮询，使用新的延迟
+        const nextPoll = setTimeout(poll, stockState.currentDelay);
+        pollingRefs.current.set(taskId, nextPoll);
       }
-    }, 3000); // 每3秒轮询一次
+    };
 
-    pollingRefs.current.set(taskId, pollInterval);
+    // 开始第一次轮询
+    const initialPoll = setTimeout(poll, stockState.currentDelay);
+    pollingRefs.current.set(taskId, initialPoll);
   };
 
   // 停止轮询
   const stopPolling = (taskId) => {
-    const interval = pollingRefs.current.get(taskId);
-    if (interval) {
-      clearInterval(interval);
+    const timeout = pollingRefs.current.get(taskId);
+    if (timeout) {
+      clearTimeout(timeout);
       pollingRefs.current.delete(taskId);
+    }
+    
+    // 清理股票状态
+    const task = tasks.find(t => t.taskId === taskId);
+    if (task) {
+      const stockState = stockPollingStates.current.get(task.stockCode);
+      if (stockState) {
+        stockState.activeTasks.delete(taskId);
+        if (stockState.activeTasks.size === 0) {
+          stockPollingStates.current.delete(task.stockCode);
+        }
+      }
     }
   };
 
@@ -285,10 +411,11 @@ const AnalysisTaskList = React.forwardRef(({ stockCode, onTaskComplete, onViewRe
   // 清理轮询定时器
   useEffect(() => {
     return () => {
-      pollingRefs.current.forEach((interval) => {
-        clearInterval(interval);
+      pollingRefs.current.forEach((timeout) => {
+        clearTimeout(timeout);
       });
       pollingRefs.current.clear();
+      stockPollingStates.current.clear();
     };
   }, []);
 
@@ -331,11 +458,13 @@ const AnalysisTaskList = React.forwardRef(({ stockCode, onTaskComplete, onViewRe
 
     return (
       <View style={styles.taskItem}>
-        <View style={styles.taskHeader}>
-          <View style={styles.stockInfo}>
-            <Text style={styles.stockCode}>{item.stockCode}</Text>
-            <Text style={styles.taskId}>#{item.taskId.slice(-8)}</Text>
-          </View>
+                 <View style={styles.taskHeader}>
+           <View style={styles.stockInfo}>
+             <Text style={styles.stockCode}>{item.stockCode}</Text>
+              {item.stockName && (
+                <Text style={styles.stockName}> - {item.stockName}</Text>
+              )}
+           </View>
           
           <View style={styles.statusContainer}>
             <Ionicons 
@@ -480,12 +609,18 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
-  stockCode: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#1C1C1E',
-    marginRight: 8,
-  },
+     stockCode: {
+     fontSize: 18,
+     fontWeight: '600',
+     color: '#1C1C1E',
+     marginRight: 4,
+   },
+   stockName: {
+     fontSize: 16,
+     fontWeight: '500',
+     color: '#666666',
+     marginRight: 8,
+   },
   taskId: {
     fontSize: 12,
     color: '#8E8E93',

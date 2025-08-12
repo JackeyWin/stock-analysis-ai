@@ -6,7 +6,6 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -96,6 +95,16 @@ public class StockAnalysisService {
             response.setMoneyFlowData(convertToMoneyFlowData(moneyFlowData));
             response.setMarginTradingData(convertToMarginTradingData(marginTradingData));
             response.setAiAnalysisResult(aiAnalysisResult);
+
+            // 从分时分析的结果中带回 stockBasic（Python 已整合），并设置 stockName
+            if (intradayAnalysis != null && intradayAnalysis.containsKey("stockBasic")) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> stockBasic = (Map<String, Object>) intradayAnalysis.get("stockBasic");
+                response.setStockBasic(stockBasic);
+                if (stockBasic != null && stockBasic.get("stockName") instanceof String) {
+                    response.setStockName((String) stockBasic.get("stockName"));
+                }
+            }
 
             log.info("股票分析完成: {}", stockCode);
 
@@ -216,10 +225,11 @@ public class StockAnalysisService {
     private NewsData convertToNewsData(Map<String, Object> rawData) {
         NewsData newsData = new NewsData();
         
-        // 基础信息
+        // 基础信息（去掉新闻摘要，以AI情感为主）
         newsData.setTitle((String) rawData.get("新闻标题"));
         newsData.setContent((String) rawData.get("新闻内容"));
-        newsData.setSummary((String) rawData.get("新闻摘要"));
+        // 不再填充摘要
+        newsData.setSummary(null);
         newsData.setSource((String) rawData.get("来源媒体"));
         newsData.setUrl((String) rawData.get("原文链接"));
         

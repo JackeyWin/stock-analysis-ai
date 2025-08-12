@@ -11,8 +11,19 @@ class AnalysisHistoryService {
    */
   static async addAnalysisRecord(analysisRecord) {
     try {
+      // 尝试从不同位置获取股票名称
+      let stockName = '';
+      if (analysisRecord.stockBasic?.stockName) {
+        stockName = analysisRecord.stockBasic.stockName;
+      } else if (analysisRecord.stockName) {
+        stockName = analysisRecord.stockName;
+      } else if (analysisRecord.result?.stockBasic?.stockName) {
+        stockName = analysisRecord.result.stockBasic.stockName;
+      }
+      
       const record = {
         ...analysisRecord,
+        stockName: stockName, // 确保有股票名称
         id: Date.now().toString(), // 使用时间戳作为唯一ID
         timestamp: new Date().toISOString(),
         createdAt: Date.now()

@@ -46,8 +46,8 @@ public class AIAnalysisService {
             String newsDataJson = formatDataAsJson(newsData);
             String moneyFlowDataJson = formatDataAsJson(moneyFlowData);
             String marginTradingDataJson = formatDataAsJson(marginTradingData);
-            String marketTechnicalIndicatorsJson = formatDataAsJson(marketTechnicalIndicators.get("近5日指标"));
-            String boardTechnicalIndicatorsJson = formatDataAsJson(marketTechnicalIndicators.get("近5日指标"));
+            String marketTechnicalIndicatorsJson = formatDataAsJson(marketTechnicalIndicators);
+            String boardTechnicalIndicatorsJson = formatDataAsJson(boardTechnicalIndicators);
             String intradayAnalysisJson = formatDataAsJson(intradayAnalysis);
 
             log.info("开始AI分析股票: {}", stockCode);
@@ -64,7 +64,8 @@ public class AIAnalysisService {
                     marginTradingDataJson,
                     intradayAnalysisJson
             );
-            
+//            String aiResponse = "";
+
             log.info("AI分析完成，响应长度: {}", aiResponse.length());
             log.info("分析结果: {}", aiResponse);
             

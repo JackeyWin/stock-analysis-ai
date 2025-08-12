@@ -17,7 +17,6 @@ import {
 } from 'react-native-paper';
 import { theme, styles } from '../utils/theme';
 import ApiService from '../services/ApiService';
-import AnalysisHistoryList from '../components/AnalysisHistoryList';
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -26,7 +25,6 @@ export default function HomeScreen({ navigation }) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [serviceStatus, setServiceStatus] = useState('unknown');
-  const [showHistory, setShowHistory] = useState(false);
 
   useEffect(() => {
     loadInitialData();
@@ -82,18 +80,7 @@ export default function HomeScreen({ navigation }) {
 
 
 
-  const handleHistorySelect = (historyItem) => {
-    // 跳转到分析结果页面，显示历史记录
-    navigation.navigate('Analysis', { 
-      stockCode: historyItem.stockCode,
-      stockName: historyItem.stockName,
-      historyData: historyItem
-    });
-  };
 
-  const toggleHistory = () => {
-    setShowHistory(!showHistory);
-  };
 
   // 移除图表相关代码，简化功能
 
@@ -131,33 +118,7 @@ export default function HomeScreen({ navigation }) {
         </Card.Content>
       </Card>
 
-      {/* 分析历史 */}
-      <Card style={styles.card}>
-        <Card.Content>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Title>分析历史</Title>
-            <Button
-              mode="outlined"
-              compact
-              onPress={toggleHistory}
-            >
-              {showHistory ? '隐藏' : '查看'}
-            </Button>
-          </View>
-          <Paragraph style={styles.smallText}>
-            最近一周的分析记录，最多显示10条
-          </Paragraph>
-          
-          {showHistory && (
-            <View style={{ marginTop: 16, height: 300 }}>
-              <AnalysisHistoryList
-                onSelectHistory={handleHistorySelect}
-                onRefresh={onRefresh}
-              />
-            </View>
-          )}
-        </Card.Content>
-      </Card>
+
 
       {/* 热门股票 */}
       <Card style={styles.card}>

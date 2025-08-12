@@ -198,7 +198,8 @@ app.post('/api/mobile/stock/analyze-async', async (req, res) => {
             taskId: jobId,  // 前端期望的字段名
             jobId,          // 保持兼容性
             message: '分析任务已启动',
-            estimatedTime: '1-2分钟'
+            estimatedTime: '1-2分钟',
+            stockName: '分析中...' // 将在分析完成后更新
         });
         
         // 异步执行分析
@@ -228,11 +229,21 @@ app.get('/api/mobile/stock/analyze-status/:taskId', (req, res) => {
         });
     }
     
-    res.json({
+    // 确保返回所有必要的字段，包括stockName
+    const responseData = {
         success: true,
         ...job,
         duration: Date.now() - job.startTime.getTime()
-    });
+    };
+    
+    // 如果任务已完成且有结果，尝试从结果中提取股票名称
+    if (job.status === 'completed' && job.result && !responseData.stockName) {
+        responseData.stockName = job.result?.stockBasic?.stockName || 
+                                job.result?.stockName || 
+                                `股票 ${job.stockCode}`;
+    }
+    
+    res.json(responseData);
 });
 
 // 异步执行分析的函数
@@ -293,7 +304,8 @@ async function performAsyncAnalysis(jobId, stockCode) {
             progress: 100,
             message: '分析完成',
             result: response.data,
-            completedTime: new Date()
+            completedTime: new Date(),
+            stockName: response.data?.stockBasic?.stockName || response.data?.stockName || `股票 ${stockCode}`
         });
         
         // 30分钟后清理任务

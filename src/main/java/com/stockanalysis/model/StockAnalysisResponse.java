@@ -3,6 +3,7 @@ package com.stockanalysis.model;
 import lombok.Data;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * 股票分析响应模型
@@ -12,6 +13,8 @@ public class StockAnalysisResponse {
     
     private String stockCode;
     private String stockName;
+    // 基础信息（来自东方财富：代码、名称、价格、成交量等）
+    private Map<String, Object> stockBasic;
     
     // 基础数据
     private List<StockData> stockData;

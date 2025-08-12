@@ -6,7 +6,11 @@
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
-    "platforms": ["ios", "android", "web"],
+    "platforms": [
+      "ios",
+      "android",
+      "web"
+    ],
     "assetBundlePatterns": [
       "**/*"
     ],
@@ -39,7 +43,10 @@
       "expo-font"
     ],
     "extra": {
-      "apiGatewayUrl": "http://192.168.5.21:3001"
+      "apiGatewayUrl": "https://tickermind.qzz.io",
+      "eas": {
+        "projectId": "7e87f2c4-cfd0-4647-a60f-86648307995f"
+      }
     }
   }
 }

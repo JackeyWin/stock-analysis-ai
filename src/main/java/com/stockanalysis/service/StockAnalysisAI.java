@@ -26,12 +26,12 @@ public interface StockAnalysisAI {
             请对股票 {{stockCode}} 进行全面的技术分析。
             
             ## 该股票的技术指标数据：
-            {{technicalIndicators}}
+            {{technicalIndicatorsJson}}
             
-            ## 该板块前5日指标数据：
+            ## 该板块的技术指标数据：
             {{boardTechnicalIndicatorsJson}}
             
-            ## 大盘前5日指标数据：
+            ## 大盘的技术指标数据：
             {{marketTechnicalIndicatorsJson}}
             
             ## 最近股价数据：
@@ -83,7 +83,7 @@ public interface StockAnalysisAI {
             5. 盘中操作部分要重点结合今日分时数据的关键转折点、资金攻击情况和操作建议
             """)
         String analyzeStock(@V("stockCode") String stockCode,
-                       @V("technicalIndicators") String technicalIndicators,
+                       @V("technicalIndicatorsJson") String technicalIndicatorsJson,
                         @V("boardTechnicalIndicatorsJson") String boardTechnicalIndicatorsJson,
                         @V("marketTechnicalIndicatorsJson") String marketTechnicalIndicatorsJson,
                         @V("recentStockData") String recentStockData,

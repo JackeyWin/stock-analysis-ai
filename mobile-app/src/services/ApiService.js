@@ -1,11 +1,13 @@
 import axios from 'axios';
 import Constants from 'expo-constants';
 
-// 从app.json配置中获取API网关地址
-const API_BASE_URL = Constants.expoConfig?.extra?.apiGatewayUrl || Constants.manifest?.extra?.apiGatewayUrl || 'http://192.168.5.21:3001';
+// Web端使用同源，原生端使用固定域名，避免iOS上http/https跨源问题
+const isWeb = typeof window !== 'undefined' && typeof document !== 'undefined';
+const API_BASE_URL = isWeb ? (window.location?.origin || 'https://tickermind.qzz.io') : 'https://tickermind.qzz.io';
 
 class ApiService {
   constructor() {
+    console.log('🚀 ApiService初始化，使用URL:', API_BASE_URL);
     this.client = axios.create({
       baseURL: API_BASE_URL,
       timeout: 300000, // 5分钟 = 300秒
@@ -13,6 +15,12 @@ class ApiService {
         'Content-Type': 'application/json',
       },
     });
+    
+    // 轮询限制管理
+    this.pollingQueue = [];
+    this.isProcessingQueue = false;
+    this.lastPollTime = 0;
+    this.minPollInterval = 1000; // 全局最小轮询间隔1秒（因为每只股票有自己的限制）
 
     // 请求拦截器
     this.client.interceptors.request.use(
@@ -97,14 +105,35 @@ class ApiService {
     }
   }
 
-  // 获取分析任务状态
+  // 获取分析任务状态（带轮询限制）
   async getAnalysisStatus(taskId) {
-    try {
-      const response = await this.client.get(`/api/mobile/stock/analyze-status/${taskId}`);
-      return response.data;
-    } catch (error) {
-      throw error;
-    }
+    return new Promise((resolve, reject) => {
+      const pollRequest = async () => {
+        try {
+          const response = await this.client.get(`/api/mobile/stock/analyze-status/${taskId}`);
+          resolve(response.data);
+        } catch (error) {
+          reject(error);
+        }
+      };
+
+      // 检查是否需要等待
+      const now = Date.now();
+      const timeSinceLastPoll = now - this.lastPollTime;
+      
+      if (timeSinceLastPoll < this.minPollInterval) {
+        // 需要等待
+        const waitTime = this.minPollInterval - timeSinceLastPoll;
+        setTimeout(() => {
+          this.lastPollTime = Date.now();
+          pollRequest();
+        }, waitTime);
+      } else {
+        // 可以立即执行
+        this.lastPollTime = now;
+        pollRequest();
+      }
+    });
   }
 
   // 股票分析 - 异步处理（保持兼容性）
@@ -132,12 +161,18 @@ class ApiService {
 
   // 轮询分析结果
   async pollAnalysisResult(taskId, maxAttempts = 60, interval = 5000, onProgress = null) {
+    let currentInterval = interval;
+    let consecutiveErrors = 0;
+    
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         console.log(`🔍 检查分析进度 (${attempt}/${maxAttempts})`);
         
         const response = await this.client.get(`/api/mobile/stock/analyze-status/${taskId}`);
         const { status, progress, result, error, message } = response.data;
+        
+        // 重置错误计数
+        consecutiveErrors = 0;
         
         // 调用进度回调
         if (onProgress) {
@@ -160,12 +195,23 @@ class ApiService {
         } else if (status === 'running') {
           console.log(`⏳ 分析进行中... ${progress || 0}%`);
           // 等待指定间隔后继续轮询
-          await new Promise(resolve => setTimeout(resolve, interval));
+          await new Promise(resolve => setTimeout(resolve, currentInterval));
         } else {
           console.log(`⏳ 任务状态: ${status}`);
-          await new Promise(resolve => setTimeout(resolve, interval));
+          await new Promise(resolve => setTimeout(resolve, currentInterval));
         }
       } catch (error) {
+        consecutiveErrors++;
+        
+        // 处理速率限制错误
+        if (error.response?.status === 429 || error.message?.includes('RATE_LIMIT_EXCEEDED')) {
+          console.warn(`⚠️ 速率限制，等待更长时间 (${consecutiveErrors}次连续错误)`);
+          // 指数退避策略
+          currentInterval = Math.min(interval * Math.pow(2, consecutiveErrors), 30000); // 最大30秒
+          await new Promise(resolve => setTimeout(resolve, currentInterval));
+          continue;
+        }
+        
         if (error.response?.status === 404) {
           console.log('❌ 任务不存在或已过期');
           throw new Error('分析任务不存在或已过期');
@@ -177,7 +223,9 @@ class ApiService {
         }
         
         console.warn(`⚠️ 轮询错误 (${attempt}/${maxAttempts}):`, error.message);
-        await new Promise(resolve => setTimeout(resolve, interval));
+        // 增加错误时的等待时间
+        currentInterval = Math.min(currentInterval * 1.5, 15000); // 最大15秒
+        await new Promise(resolve => setTimeout(resolve, currentInterval));
       }
     }
     

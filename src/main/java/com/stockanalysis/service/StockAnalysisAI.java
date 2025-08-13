@@ -49,6 +49,9 @@ public interface StockAnalysisAI {
             ## 今日分时数据分析：
             {{intradayAnalysis}}
             
+            ## 当前时间：
+            {{currentTime}}
+            
             ## 分析要求：
             请基于以上数据进行专业的技术分析，并严格按照以下格式组织你的回答：
             
@@ -73,14 +76,17 @@ public interface StockAnalysisAI {
             
             - 交易建议: [简洁的交易建议，不超过200字]
             
-            - 盘中操作: [基于今日分时数据分析，给出具体的盘中操作建议，不超过200字]
+            - 盘面分析: [根据当前时间和分时数据指标智能分析：开盘前(9:00前)结合技术指标和资金结构预测今日盘面走势和操作建议；盘中(9:00-15:00)根据实时价格位置、资金流向、成交量变化和资金攻击情况给出操作建议；盘后(15:00后)复盘总结今日走势特征并预测明日操作建议，不超过200字]
             
             重要要求：
             1. 每个部分必须以"- 标题:"开头
             2. 每个部分之间用空行分隔
             3. 每个部分内容要简洁明了，不要混合其他部分的内容
             4. 不要在一个部分中提及其他部分的标题
-            5. 盘中操作部分要重点结合今日分时数据的关键转折点、资金攻击情况和操作建议
+            5. 盘面分析部分要根据当前时间（开盘前/盘中/盘后）给出相应的分析内容：
+               - 开盘前：重点关注技术指标趋势、资金结构特征，预测今日可能的走势
+               - 盘中：重点关注价格位置（日内高低点位置）、资金流向强度、成交量变化、多空攻击情况
+               - 盘后：总结今日走势特征，分析关键转折点，预测明日操作策略
             """)
         String analyzeStock(@V("stockCode") String stockCode,
                        @V("technicalIndicatorsJson") String technicalIndicatorsJson,
@@ -90,7 +96,8 @@ public interface StockAnalysisAI {
                         @V("newsData") String newsData,
                         @V("moneyFlowData") String moneyFlowData,
                         @V("marginTradingData") String marginTradingData,
-                        @V("intradayAnalysis") String intradayAnalysis);
+                        @V("intradayAnalysis") String intradayAnalysis,
+                        @V("currentTime") String currentTime);
 
     @SystemMessage("""
             你是一位专业的股票分析师。请根据提供的技术指标数据进行快速分析。

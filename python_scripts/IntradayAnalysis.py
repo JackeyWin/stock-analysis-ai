@@ -333,71 +333,79 @@ class IntradayAnalyzer:
             }
         }
 
-    def generate_trading_advice(self) -> Dict[str, Any]:
-        """生成盘中操作建议"""
+    def generate_market_indicators(self) -> Dict[str, Any]:
+        """生成盘面重要指标数据"""
         if not self.trends_data or not self.fund_flow_data:
-            return {"advice": "数据不足，无法给出建议", "confidence": "低"}
+            return {"status": "数据不足", "message": "无法获取分时数据"}
         
-        # 分析当前趋势
+        # 计算价格指标
         recent_prices = [item['p'] for item in self.trends_data[-10:]]  # 最近10分钟价格
-        recent_flows = [item.get('zl', 0) for item in self.fund_flow_data[-10:]]  # 最近10分钟主力流向
+        all_prices = [item['p'] for item in self.trends_data]
         
-        price_trend = "上涨" if recent_prices[-1] > recent_prices[0] else "下跌"
-        avg_flow = sum(recent_flows) / len(recent_flows)
-        
-        # 计算技术指标
         current_price = recent_prices[-1]
-        high_price = max([item['p'] for item in self.trends_data])
-        low_price = min([item['p'] for item in self.trends_data])
+        high_price = max(all_prices)
+        low_price = min(all_prices)
+        open_price = all_prices[0] if all_prices else current_price
         
-        # 价格位置
+        # 价格位置和涨跌幅
         price_position = (current_price - low_price) / (high_price - low_price) if high_price != low_price else 0.5
+        price_change = current_price - open_price
+        price_change_pct = (price_change / open_price * 100) if open_price != 0 else 0
         
-        # 生成建议
-        advice_parts = []
-        confidence = "中"
+        # 计算资金流向指标
+        recent_flows = [item.get('zl', 0) for item in self.fund_flow_data[-10:]]  # 最近10分钟主力流向
+        avg_flow = sum(recent_flows) / len(recent_flows) if recent_flows else 0
+        total_flow = sum(recent_flows)
         
-        if avg_flow > 5000000:  # 主力持续流入
-            if price_position < 0.3:  # 低位
-                advice_parts.append("主力低位建仓，可考虑逢低买入")
-                confidence = "高"
-            elif price_position > 0.7:  # 高位
-                advice_parts.append("高位放量，注意获利了结风险")
-                confidence = "中"
-            else:
-                advice_parts.append("主力资金流入，可适量跟进")
-                confidence = "中"
-        elif avg_flow < -5000000:  # 主力持续流出
-            if price_position > 0.7:  # 高位
-                advice_parts.append("高位主力出货，建议减仓或观望")
-                confidence = "高"
-            else:
-                advice_parts.append("主力资金流出，谨慎操作")
-                confidence = "中"
-        else:  # 资金流向平衡
-            if price_trend == "上涨" and price_position < 0.5:
-                advice_parts.append("温和上涨，可小仓位试探")
-                confidence = "低"
-            elif price_trend == "下跌" and price_position > 0.5:
-                advice_parts.append("高位回调，建议观望")
-                confidence = "中"
-            else:
-                advice_parts.append("震荡整理，等待明确信号")
-                confidence = "低"
+        # 计算成交量指标
+        recent_volumes = [item.get('v', 0) for item in self.trends_data[-10:]]
+        avg_volume = sum(recent_volumes) / len(recent_volumes) if recent_volumes else 0
+        volume_trend = "放量" if recent_volumes[-1] > avg_volume * 1.2 else "缩量" if recent_volumes[-1] < avg_volume * 0.8 else "正常"
         
-        # 风险提示
-        risk_warnings = []
-        if price_position > 0.8:
-            risk_warnings.append("当前价格接近日内高点")
-        if len([a for a in self.analyze_capital_attacks()["bear_attacks"]["details"]]) > 2:
-            risk_warnings.append("空头攻击频繁，注意风险")
+        # 计算价格趋势
+        price_trend = "上涨" if recent_prices[-1] > recent_prices[0] else "下跌" if recent_prices[-1] < recent_prices[0] else "横盘"
+        
+        # 获取资金攻击数据
+        capital_attacks = self.analyze_capital_attacks()
+        bull_attacks_count = capital_attacks.get("bull_attacks", {}).get("count", 0)
+        bear_attacks_count = capital_attacks.get("bear_attacks", {}).get("count", 0)
+        
+        # 获取当前资金结构
+        fund_structure = self.analyze_fund_structure()
         
         return {
-            "advice": "；".join(advice_parts),
-            "confidence": confidence,
-            "risk_warnings": risk_warnings,
-            "current_position": f"日内{price_position*100:.0f}%位置",
-            "trend_analysis": f"近期{price_trend}，主力资金{'流入' if avg_flow > 0 else '流出' if avg_flow < 0 else '平衡'}"
+            "price_indicators": {
+                "current_price": current_price,
+                "high_price": high_price,
+                "low_price": low_price,
+                "open_price": open_price,
+                "price_change": price_change,
+                "price_change_pct": price_change_pct,
+                "price_position": price_position,
+                "price_trend": price_trend
+            },
+            "volume_indicators": {
+                "current_volume": recent_volumes[-1] if recent_volumes else 0,
+                "avg_volume": avg_volume,
+                "volume_trend": volume_trend,
+                "volume_ratio": recent_volumes[-1] / avg_volume if avg_volume > 0 else 1
+            },
+            "fund_flow_indicators": {
+                "recent_avg_flow": avg_flow,
+                "total_flow": total_flow,
+                "flow_trend": "流入" if avg_flow > 0 else "流出" if avg_flow < 0 else "平衡",
+                "flow_intensity": abs(avg_flow) / 1000000  # 以百万为单位
+            },
+            "capital_attack_indicators": {
+                "bull_attacks": bull_attacks_count,
+                "bear_attacks": bear_attacks_count,
+                "attack_balance": bull_attacks_count - bear_attacks_count
+            },
+            "fund_structure": fund_structure,
+            "market_status": {
+                "data_quality": "完整" if len(self.trends_data) > 10 else "不足",
+                "update_time": datetime.now().strftime("%H:%M:%S")
+            }
         }
     
     def analyze_fund_structure(self) -> Dict[str, Any]:
@@ -521,7 +529,7 @@ class IntradayAnalyzer:
         key_metrics = self.calculate_key_metrics()
         turning_points = self.identify_turning_points()
         capital_attacks = self.analyze_capital_attacks()
-        trading_advice = self.generate_trading_advice()
+        market_indicators = self.generate_market_indicators()
         fund_structure = self.analyze_fund_structure()
         
         # 构建结果
@@ -531,7 +539,7 @@ class IntradayAnalyzer:
             "key_metrics": key_metrics,
             "key_turning_points": turning_points,
             "capital_attacks": capital_attacks,
-            "trading_advice": trading_advice,
+            "market_indicators": market_indicators,
             "fund_structure": fund_structure
         }
         

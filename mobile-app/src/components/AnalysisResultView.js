@@ -194,7 +194,7 @@ const AnalysisResultView = ({ result, stockCode, onClose }) => {
             'rsiAnalysis': 'RSI指标',
             'pricePredict': '价格预测',
             'tradingAdvice': '交易建议',
-            'intradayOperations': '盘中操作',
+            'intradayOperations': '盘面分析',
             'recommendation': '投资建议',
             'riskAnalysis': '风险分析',
             'marketSentiment': '市场情绪',
@@ -228,7 +228,7 @@ const AnalysisResultView = ({ result, stockCode, onClose }) => {
         return 'calendar-outline';
       case '交易建议':
         return 'trending-up-outline';
-      case '盘中操作':
+      case '盘面分析':
         return 'time-outline';
       case '投资建议':
         return 'trending-up-outline';

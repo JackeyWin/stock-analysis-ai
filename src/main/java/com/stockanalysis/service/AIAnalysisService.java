@@ -52,6 +52,9 @@ public class AIAnalysisService {
 
             log.info("开始AI分析股票: {}", stockCode);
             
+            // 获取当前时间
+            String currentTime = java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+            
             // 使用LangChain4j调用AI分析
             String aiResponse = stockAnalysisAI.analyzeStock(
                     stockCode,
@@ -62,7 +65,8 @@ public class AIAnalysisService {
                     newsDataJson,
                     moneyFlowDataJson,
                     marginTradingDataJson,
-                    intradayAnalysisJson
+                    intradayAnalysisJson,
+                    currentTime
             );
 //            String aiResponse = "";
 
@@ -176,7 +180,7 @@ public class AIAnalysisService {
         result.setRsiAnalysis(extractSection(aiResponse, "RSI指标"));
         result.setPricePredict(extractSection(aiResponse, "价格预测"));
         result.setTradingAdvice(extractSection(aiResponse, "交易建议"));
-        result.setIntradayOperations(extractSection(aiResponse, "盘中操作"));
+        result.setIntradayOperations(extractSection(aiResponse, "盘面分析"));
         
         return result;
     }

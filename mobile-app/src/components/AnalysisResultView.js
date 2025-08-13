@@ -13,6 +13,44 @@ import { Ionicons } from '@expo/vector-icons';
 const AnalysisResultView = ({ result, stockCode, onClose }) => {
   const [expandedSections, setExpandedSections] = useState(new Set(['summary']));
 
+  // 获取股票名称
+  const getStockName = () => {
+    if (result?.stockBasic?.stockName) {
+      return result.stockBasic.stockName;
+    }
+    if (result?.stockName) {
+      return result.stockName;
+    }
+    if (result?.aiAnalysisResult?.stockName) {
+      return result.aiAnalysisResult.stockName;
+    }
+    return '';
+  };
+
+  // 智能时间显示
+  const getTimeDisplay = () => {
+    if (!result?.timestamp) {
+      return '刚刚';
+    }
+    
+    const now = new Date();
+    const analysisTime = new Date(result.timestamp);
+    const diffMs = now - analysisTime;
+    const diffMinutes = Math.floor(diffMs / (1000 * 60));
+    
+    if (diffMinutes < 60) {
+      return '刚刚';
+    } else {
+      return analysisTime.toLocaleString('zh-CN', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    }
+  };
+
   const toggleSection = (sectionKey) => {
     const newExpanded = new Set(expandedSections);
     if (newExpanded.has(sectionKey)) {
@@ -247,9 +285,14 @@ const AnalysisResultView = ({ result, stockCode, onClose }) => {
     <View style={styles.container}>
       <View style={styles.header}>
         <View style={styles.headerLeft}>
-          <Text style={styles.stockCode}>{stockCode}</Text>
+          <View style={styles.stockInfo}>
+            <Text style={styles.stockCode}>{stockCode}</Text>
+            {getStockName() && (
+              <Text style={styles.stockName}> - {getStockName()}</Text>
+            )}
+          </View>
           <Text style={styles.analysisTime}>
-            {result?.timestamp ? new Date(result.timestamp).toLocaleString() : '刚刚'}
+            {getTimeDisplay()}
           </Text>
         </View>
         
@@ -356,10 +399,19 @@ const styles = StyleSheet.create({
   headerLeft: {
     flex: 1,
   },
+  stockInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   stockCode: {
     fontSize: 24,
     fontWeight: '700',
     color: '#1C1C1E',
+  },
+  stockName: {
+    fontSize: 20,
+    fontWeight: '500',
+    color: '#666666',
   },
   analysisTime: {
     fontSize: 12,

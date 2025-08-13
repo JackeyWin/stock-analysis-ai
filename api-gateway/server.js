@@ -59,7 +59,7 @@ app.post('/api/mobile/stock/analyze', async (req, res) => {
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                timeout: 120000  // 增加到2分钟
+                timeout: 600000  // 增加到10分钟
             }
         );
         
@@ -106,7 +106,7 @@ app.post('/api/mobile/stock/quick-analyze', async (req, res) => {
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                timeout: 60000  // 快速分析1分钟超时
+                timeout: 300000  // 快速分析5分钟超时
             }
         );
         
@@ -134,7 +134,7 @@ app.post('/api/mobile/stock/risk-assessment', async (req, res) => {
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                timeout: 90000  // 风险评估1.5分钟超时
+                timeout: 300000  // 风险评估5分钟超时
             }
         );
         
@@ -158,7 +158,7 @@ app.get('/api/mobile/stock/analyze/:stockCode', async (req, res) => {
         const { stockCode } = req.params;
         const response = await axios.get(
             `${STOCK_ANALYSIS_SERVICE_URL}/api/stock/analyze/${stockCode}`,
-            { timeout: 120000 }  // 简单分析2分钟超时
+            { timeout: 600000 }  // 简单分析10分钟超时
         );
         
         res.json({
@@ -237,8 +237,9 @@ app.get('/api/mobile/stock/analyze-status/:taskId', (req, res) => {
     };
     
     // 如果任务已完成且有结果，尝试从结果中提取股票名称
-    if (job.status === 'completed' && job.result && !responseData.stockName) {
-        responseData.stockName = job.result?.stockBasic?.stockName || 
+    if (job.status === 'completed' && job.result) {
+        responseData.stockName = job.stockName || 
+                                job.result?.stockBasic?.stockName || 
                                 job.result?.stockName || 
                                 `股票 ${job.stockCode}`;
     }
@@ -291,13 +292,17 @@ async function performAsyncAnalysis(jobId, stockCode) {
             { stockCode },
             {
                 headers: { 'Content-Type': 'application/json' },
-                timeout: 180000  // 3分钟超时
+                timeout: 600000  // 10分钟超时
             }
         );
         
         clearInterval(progressInterval);
         
         // 更新任务状态为完成
+        const stockName = response.data?.stockBasic?.stockName || 
+                         response.data?.stockName || 
+                         `股票 ${stockCode}`;
+        
         analysisJobs.set(jobId, {
             ...job,
             status: 'completed',
@@ -305,7 +310,7 @@ async function performAsyncAnalysis(jobId, stockCode) {
             message: '分析完成',
             result: response.data,
             completedTime: new Date(),
-            stockName: response.data?.stockBasic?.stockName || response.data?.stockName || `股票 ${stockCode}`
+            stockName: stockName
         });
         
         // 30分钟后清理任务

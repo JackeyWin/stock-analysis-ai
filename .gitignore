@@ -33,4 +33,7 @@ python_scripts/_test_output_indicators.json
 .idea/
 .vscode/
 
+# Java heap dump files
+*.hprof
+
 

@@ -39,6 +39,19 @@ public class PythonScriptService {
     @Value("${technical.indicators.max.json.size:50000}")
     private int maxJsonSizeForTechnicalIndicators;
 
+    // 新闻情感分析配置
+    @Value("${news.sentiment.provider:keyword}")
+    private String newsSentimentProvider;
+    
+    @Value("${news.sentiment.crawl-content:true}")
+    private boolean newsCrawlContent;
+    
+    @Value("${news.sentiment.max-pages:1}")
+    private int newsMaxPages;
+
+    @Value("${deepseek.api.key:sk-2c60a0afb4004678be7c5703e940d360}")
+    private String deepseekApiKey;
+
     private final ObjectMapper objectMapper;
 
     public PythonScriptService(ObjectMapper objectMapper) {
@@ -170,9 +183,47 @@ public class PythonScriptService {
     }
 
     /**
+     * 获取行业成分股数据
+     * @param sectorName 行业名称
+     * @return 行业成分股列表
+     */
+    public List<Map<String, Object>> getSectorStocks(String sectorName) {
+        try {
+            log.info("获取行业 {} 的成分股数据", sectorName);
+            String result = executePythonScript("EastMoneySectorStocks.py", "--name", sectorName);
+            
+            if (result == null || result.isEmpty()) {
+                log.warn("获取行业 {} 成分股数据失败: 返回结果为空", sectorName);
+                return new ArrayList<>();
+            }
+            
+            // 清理JSON字符串
+            result = cleanJsonString(result);
+            if (result == null || result.isEmpty()) {
+                log.warn("获取行业 {} 成分股数据失败: 清理后的结果为空", sectorName);
+                return new ArrayList<>();
+            }
+            
+            // 解析JSON
+            Map<String, Object> data = objectMapper.readValue(result, new TypeReference<Map<String, Object>>() {});
+            
+            // 获取股票列表
+            Object stocksObj = data.get("stocks");
+            if (stocksObj instanceof List) {
+                return (List<Map<String, Object>>) stocksObj;
+            }
+            
+            return new ArrayList<>();
+        } catch (Exception e) {
+            log.error("获取行业 {} 成分股数据失败: {}", sectorName, e.getMessage(), e);
+            return new ArrayList<>();
+        }
+    }
+
+    /**
      * 执行Python脚本
      */
-    private String executePythonScript(String scriptName, String... args) throws IOException, InterruptedException {
+    public String executePythonScript(String scriptName, String... args) throws IOException, InterruptedException {
         ProcessBuilder processBuilder = new ProcessBuilder();
 
         // 构建命令
@@ -190,7 +241,10 @@ public class PythonScriptService {
         processBuilder.environment().put("LANG", "zh_CN.UTF-8");
         processBuilder.environment().put("LC_ALL", "zh_CN.UTF-8");
 
-        log.debug("执行Python脚本: {}", String.join(" ", command));
+        // 仅记录脚本名，避免泄露敏感参数
+        if (log.isDebugEnabled()) {
+            log.debug("执行Python脚本: {} ... (参数已省略)", scriptName);
+        }
 
         Process process = processBuilder.start();
 
@@ -242,14 +296,15 @@ public class PythonScriptService {
 
         int exitCode = process.exitValue();
         
-        // 记录stderr输出（通常是日志信息）
-        if (errorOutput.length() > 0) {
-            log.debug("Python脚本stderr输出: {}", errorOutput.toString());
+        // 如有需要可在TRACE级别查看stderr，默认不打印
+        if (errorOutput.length() > 0 && log.isTraceEnabled()) {
+            log.trace("Python脚本stderr输出: {}", errorOutput.toString());
         }
         
         if (exitCode != 0) {
             String errorMsg = errorOutput.length() > 0 ? errorOutput.toString() : output.toString();
-            log.error("Python脚本执行失败，退出码: {}, 错误输出: {}", exitCode, errorMsg);
+            // 不回显完整错误输出到日志，避免噪音/敏感信息
+            log.error("Python脚本执行失败，退出码: {}", exitCode);
             throw new RuntimeException("Python脚本执行失败: " + errorMsg);
         }
 
@@ -279,8 +334,8 @@ public class PythonScriptService {
 
             return objectMapper.readValue(result, new TypeReference<List<Map<String, Object>>>() {});
         } catch (Exception e) {
-            log.error("获取个股K线数据失败: {}", e.getMessage(), e);
-            throw new RuntimeException("获取个股K线数据失败: " + e.getMessage());
+            log.warn("获取个股K线数据失败: {}，返回空列表", e.getMessage());
+            return new ArrayList<>(); // 返回空列表而不是报错
         }
     }
 
@@ -292,8 +347,8 @@ public class PythonScriptService {
             String result = executePythonScript("EastMoneyMarketHistoryKline.py", stockCode);
             return objectMapper.readValue(result, new TypeReference<List<Map<String, Object>>>() {});
         } catch (Exception e) {
-            log.error("获取大盘K线数据失败: {}", e.getMessage(), e);
-            throw new RuntimeException("获取大盘K线数据失败: " + e.getMessage());
+            log.warn("获取大盘K线数据失败: {}，返回空列表", e.getMessage());
+            return new ArrayList<>(); // 返回空列表而不是报错
         }
     }
 
@@ -306,8 +361,8 @@ public class PythonScriptService {
             List<Map<String, Object>> response = objectMapper.readValue(result, new TypeReference<List<Map<String, Object>>>() {});
             return response;
         } catch (Exception e) {
-            log.error("获取板块K线数据失败: {}", e.getMessage(), e);
-            throw new RuntimeException("获取板块K线数据失败: " + e.getMessage());
+            log.warn("获取板块K线数据失败: {}，返回空列表", e.getMessage());
+            return new ArrayList<>(); // 返回空列表而不是报错
         }
     }
 
@@ -414,14 +469,16 @@ public class PythonScriptService {
                 }
             }
 
-            // 传入：stockCode, crawl_content(true), max_pages(1), targetName, aliases
+            // 传入：stockCode, crawl_content, max_pages, targetName, aliases, deepseek_api_key, sentiment_provider
             String result = executePythonScript(
                 "EasyMoneyNewsData.py",
                 stockCode,
-                "true",
-                "1",
+                String.valueOf(newsCrawlContent),
+                String.valueOf(newsMaxPages),
                 targetName == null ? "" : targetName,
-                aliases == null ? "" : aliases
+                aliases == null ? "" : aliases,
+                deepseekApiKey,  // 从配置文件读取的DeepSeek API密钥
+                newsSentimentProvider  // 从配置文件读取的情感分析提供者
             );
             
             // 验证JSON格式
@@ -437,8 +494,8 @@ public class PythonScriptService {
             
             return objectMapper.readValue(result, new TypeReference<List<Map<String, Object>>>() {});
         } catch (Exception e) {
-            log.error("获取新闻数据失败: {}", e.getMessage(), e);
-            throw new RuntimeException("获取新闻数据失败: " + e.getMessage());
+            log.warn("获取新闻数据失败: {}，返回空列表", e.getMessage());
+            return new ArrayList<>(); // 返回空列表而不是报错
         }
     }
 
@@ -450,8 +507,8 @@ public class PythonScriptService {
             String result = executePythonScript("EastMoneyFundFlow.py", stockCode);
             return objectMapper.readValue(result, new TypeReference<List<Map<String, Object>>>() {});
         } catch (Exception e) {
-            log.error("获取资金流向数据失败: {}", e.getMessage(), e);
-            throw new RuntimeException("获取资金流向数据失败: " + e.getMessage());
+            log.warn("获取资金流向数据失败: {}，返回空列表", e.getMessage());
+            return new ArrayList<>(); // 返回空列表而不是报错
         }
     }
 
@@ -461,10 +518,36 @@ public class PythonScriptService {
     public List<Map<String, Object>> getMarginTradingData(String stockCode) {
         try {
             String result = executePythonScript("EastMoneyRZRQData.py", stockCode);
-            return objectMapper.readValue(result, new TypeReference<List<Map<String, Object>>>() {});
+            
+            // 验证JSON格式
+            if (result == null || result.trim().isEmpty()) {
+                log.warn("股票 {} 融资融券数据脚本返回空结果", stockCode);
+                return new ArrayList<>(); // 返回空列表而不是报错
+            }
+            
+            // 清理JSON字符串
+            result = cleanJsonString(result);
+            
+            // 尝试解析为数组
+            try {
+                return objectMapper.readValue(result, new TypeReference<List<Map<String, Object>>>() {});
+            } catch (Exception e) {
+                // 如果解析为数组失败，尝试解析为对象，检查是否有错误
+                try {
+                    Map<String, Object> errorResult = objectMapper.readValue(result, new TypeReference<Map<String, Object>>() {});
+                    if (errorResult.containsKey("error")) {
+                        log.warn("股票 {} 融资融券数据获取失败: {}，返回空列表", stockCode, errorResult.get("error"));
+                        return new ArrayList<>(); // 返回空列表而不是报错
+                    }
+                } catch (Exception ex) {
+                    log.warn("股票 {} 融资融券数据格式异常: {}，返回空列表", stockCode, ex.getMessage());
+                }
+                return new ArrayList<>(); // 返回空列表而不是报错
+            }
+            
         } catch (Exception e) {
-            log.error("获取融资融券数据失败: {}", e.getMessage(), e);
-            throw new RuntimeException("获取融资融券数据失败: " + e.getMessage());
+            log.warn("获取股票 {} 融资融券数据失败: {}，返回空列表", stockCode, e.getMessage());
+            return new ArrayList<>(); // 返回空列表而不是报错
         }
     }
 
@@ -532,6 +615,120 @@ public class PythonScriptService {
             
         } catch (Exception e) {
             log.warn("获取股票 {} 基础数据失败: {}，返回null", stockCode, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * 获取同行比较数据
+     */
+    public Map<String, Object> getPeerComparisonData(String stockCode) {
+        try {
+            log.debug("开始获取股票 {} 的同行比较数据", stockCode);
+            String result = executePythonScript("EastMoneyPeerComparison.py", stockCode);
+            
+            // 验证JSON格式
+            if (result == null || result.trim().isEmpty()) {
+                log.warn("股票 {} 同行比较数据脚本返回空结果", stockCode);
+                return null;
+            }
+            
+            // 清理JSON字符串
+            result = cleanJsonString(result);
+            
+            Map<String, Object> rawResult = objectMapper.readValue(result, new TypeReference<Map<String, Object>>() {});
+            
+            // 检查新的输出格式
+            if (rawResult.containsKey("success")) {
+                Boolean success = (Boolean) rawResult.get("success");
+                if (success != null && success) {
+                    // 成功时，提取data字段
+                    Object data = rawResult.get("data");
+                    if (data instanceof Map) {
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> peerData = (Map<String, Object>) data;
+                        log.debug("同行比较数据获取完成，股票代码: {}", stockCode);
+                        return peerData;
+                    } else if (data instanceof List) {
+                        // 如果data是数组，包装成Map
+                        log.warn("股票 {} 同行比较数据data字段是数组类型，包装成Map", stockCode);
+                        Map<String, Object> wrappedData = new HashMap<>();
+                        wrappedData.put("listData", data);
+                        return wrappedData;
+                    } else {
+                        log.warn("股票 {} 同行比较数据格式错误，data字段类型: {}", stockCode, data != null ? data.getClass().getSimpleName() : "null");
+                        return new HashMap<>();
+                    }
+                } else {
+                    // 失败时，记录错误信息
+                    String error = (String) rawResult.get("error");
+                    log.warn("股票 {} 同行比较数据获取失败: {}", stockCode, error);
+                    return new HashMap<>();
+                }
+            } else {
+                // 兼容旧格式，直接返回整个结果
+                log.debug("同行比较数据获取完成（旧格式），股票代码: {}", stockCode);
+                return rawResult;
+            }
+            
+        } catch (Exception e) {
+            log.warn("获取股票 {} 同行比较数据失败: {}，返回空Map", stockCode, e.getMessage());
+            return new HashMap<>();
+        }
+    }
+
+    /**
+     * 获取财务分析数据
+     */
+    public Map<String, Object> getFinancialAnalysisData(String stockCode) {
+        try {
+            log.debug("开始获取股票 {} 的财务分析数据", stockCode);
+            String result = executePythonScript("EastMoneyFinancialAnalysis.py", stockCode);
+            
+            // 验证JSON格式
+            if (result == null || result.trim().isEmpty()) {
+                log.warn("股票 {} 财务分析数据脚本返回空结果", stockCode);
+                return null;
+            }
+            
+            // 清理JSON字符串
+            result = cleanJsonString(result);
+            
+            Map<String, Object> financialData = objectMapper.readValue(result, new TypeReference<Map<String, Object>>() {});
+            
+            log.debug("财务分析数据获取完成，股票代码: {}", stockCode);
+            return financialData;
+            
+        } catch (Exception e) {
+            log.warn("获取股票 {} 财务分析数据失败: {}，返回null", stockCode, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * 获取股票核心概念和行业标签数据
+     */
+    public Map<String, Object> getCoreTagsData(String stockCode) {
+        try {
+            log.debug("开始获取股票 {} 的核心概念和行业标签数据", stockCode);
+            String result = executePythonScript("EastMoneyCoreTags.py", stockCode);
+            
+            // 验证JSON格式
+            if (result == null || result.trim().isEmpty()) {
+                log.warn("股票 {} 核心概念和行业标签数据脚本返回空结果", stockCode);
+                return null;
+            }
+            
+            // 清理JSON字符串
+            result = cleanJsonString(result);
+            
+            Map<String, Object> coreTagsData = objectMapper.readValue(result, new TypeReference<Map<String, Object>>() {});
+            
+            log.debug("核心概念和行业标签数据获取完成，股票代码: {}", stockCode);
+            return coreTagsData;
+            
+        } catch (Exception e) {
+            log.warn("获取股票 {} 核心概念和行业标签数据失败: {}，返回null", stockCode, e.getMessage());
             return null;
         }
     }

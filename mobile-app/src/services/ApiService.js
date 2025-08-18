@@ -14,6 +14,9 @@ class ApiService {
       headers: {
         'Content-Type': 'application/json',
       },
+      // 添加字符编码配置
+      responseType: 'json',
+      responseEncoding: 'utf8'
     });
     
     // 轮询限制管理
@@ -291,6 +294,66 @@ class ApiService {
   async getPopularStocks() {
     try {
       const response = await this.client.get('/api/mobile/stocks/popular');
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  // 获取每日推荐摘要
+  async getDailyRecommendationSummary() {
+    try {
+      const response = await this.client.get('/api/recommendations/summary');
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  // 获取今日推荐
+  async getTodayRecommendation() {
+    try {
+      const response = await this.client.get('/api/recommendations/today');
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  // 获取热门推荐
+  async getHotRecommendations() {
+    try {
+      const response = await this.client.get('/api/recommendations/hot');
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  // 获取推荐详情
+  async getRecommendationDetail(stockCode) {
+    try {
+      const response = await this.client.get(`/api/recommendations/detail/${stockCode}`);
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  // 按领域获取推荐
+  async getRecommendationsBySector(sector) {
+    try {
+      const response = await this.client.get(`/api/recommendations/sector/${sector}`);
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  // 刷新推荐
+  async refreshRecommendation() {
+    try {
+      const response = await this.client.post('/api/recommendations/refresh');
       return response.data;
     } catch (error) {
       throw error;

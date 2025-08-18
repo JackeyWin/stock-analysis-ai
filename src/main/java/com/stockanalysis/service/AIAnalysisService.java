@@ -29,7 +29,7 @@ public class AIAnalysisService {
     /**
      * 进行股票AI分析
      */
-    public AIAnalysisResult analyzeStock(String stockCode, 
+        public AIAnalysisResult analyzeStock(String stockCode,
                                        List<Map<String, Object>> stockData,
                                        Map<String, Object> marketTechnicalIndicators,
                                        Map<String, Object> boardTechnicalIndicators,
@@ -37,7 +37,9 @@ public class AIAnalysisService {
                                        List<Map<String, Object>> newsData,
                                        List<Map<String, Object>> moneyFlowData,
                                        List<Map<String, Object>> marginTradingData,
-                                       Map<String, Object> intradayAnalysis) {
+                                       Map<String, Object> intradayAnalysis,
+                                       Map<String, Object> peerComparison,
+                                       Map<String, Object> financialAnalysis) {
         
         try {
             // 准备数据
@@ -49,13 +51,20 @@ public class AIAnalysisService {
             String marketTechnicalIndicatorsJson = formatDataAsJson(marketTechnicalIndicators);
             String boardTechnicalIndicatorsJson = formatDataAsJson(boardTechnicalIndicators);
             String intradayAnalysisJson = formatDataAsJson(intradayAnalysis);
+            String peerComparisonJson = formatDataAsJson(peerComparison);
+            String financialAnalysisJson = formatDataAsJson(financialAnalysis);
 
-            log.info("开始AI分析股票: {}", stockCode);
+            log.debug("开始AI分析股票: {}", stockCode);
             
             // 获取当前时间
             String currentTime = java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
             
-            // 使用LangChain4j调用AI分析
+            // 从财务分析数据中提取概念和行业信息（如果有的话）
+            String conceptsAndIndustries = extractConceptsAndIndustries(financialAnalysis);
+            
+            log.debug("提取到概念和行业信息");
+            
+            // 使用LangChain4j调用AI分析，让大模型决定是否调用工具
             String aiResponse = stockAnalysisAI.analyzeStock(
                     stockCode,
                     technicalIndicatorsJson,
@@ -66,15 +75,17 @@ public class AIAnalysisService {
                     moneyFlowDataJson,
                     marginTradingDataJson,
                     intradayAnalysisJson,
-                    currentTime
+                    currentTime,
+                    peerComparisonJson,
+                    financialAnalysisJson,
+                    conceptsAndIndustries
             );
 //            String aiResponse = "";
 
-            log.info("AI分析完成，响应长度: {}", aiResponse.length());
-            log.info("分析结果: {}", aiResponse);
+            log.debug("AI分析完成，响应长度: {}", aiResponse != null ? aiResponse.length() : 0);
             
-            // 解析AI响应
-            return parseAIResponse(aiResponse);
+        // 解析AI响应
+        return parseAIResponse(aiResponse);
             
         } catch (Exception e) {
             log.error("AI分析失败: {}", e.getMessage(), e);
@@ -170,18 +181,34 @@ public class AIAnalysisService {
      * 解析AI响应
      */
     private AIAnalysisResult parseAIResponse(String aiResponse) {
+        // 降低解析日志噪音
+        log.debug("开始解析AI响应");
+        
         AIAnalysisResult result = new AIAnalysisResult();
         result.setFullAnalysis(aiResponse);
         
-        // 使用正则表达式提取各个部分
-        result.setTrendAnalysis(extractSection(aiResponse, "趋势分析"));
-        result.setTechnicalPattern(extractSection(aiResponse, "技术形态"));
-        result.setMovingAverage(extractSection(aiResponse, "移动平均线"));
-        result.setRsiAnalysis(extractSection(aiResponse, "RSI指标"));
-        result.setPricePredict(extractSection(aiResponse, "价格预测"));
-        result.setTradingAdvice(extractSection(aiResponse, "交易建议"));
-        result.setIntradayOperations(extractSection(aiResponse, "盘面分析"));
+        // 提取"公司基本面分析"、"操作策略"、"盘面分析"和"行业趋势和政策导向"
+        log.debug("开始提取各个分析部分");
         
+        String companyFundamentalAnalysis = extractSection(aiResponse, "公司基本面分析");
+        // 不打印内容
+        
+        String operationStrategy = extractSection(aiResponse, "操作策略");
+        
+        
+        String intradayOperations = extractSection(aiResponse, "盘面分析");
+        
+        
+        String industryPolicyOrientation = extractSection(aiResponse, "行业趋势和政策导向");
+        
+        
+        result.setCompanyFundamentalAnalysis(companyFundamentalAnalysis);
+        result.setIndustryPolicyOrientation(industryPolicyOrientation);
+        result.setOperationStrategy(operationStrategy);
+        result.setIntradayOperations(intradayOperations);
+    
+        
+        log.debug("AI响应解析完成");
         return result;
     }
 
@@ -192,30 +219,79 @@ public class AIAnalysisService {
         // 预处理文本，统一格式
         text = preprocessText(text);
         
-        // 尝试多种格式的正则表达式
-        String[] patterns = {
-            // 格式1: - 趋势分析: [内容] (标准格式)
-            "- " + sectionName + ":\\s*([^\\n]*(?:\\n(?!- [\\u4e00-\\u9fa5]+:|#### \\d+\\.|\\*\\*[\\u4e00-\\u9fa5]+\\*\\*:)[^\\n]*)*)",
-            // 格式2: #### 数字. 趋势分析: [内容]
-            "#### \\d+\\. " + sectionName + ":\\s*([^\\n]*(?:\\n(?!#### \\d+\\.|\\n\\n)[^\\n]*)*)",
-            // 格式3: **趋势分析**: [内容]
-            "\\*\\*" + sectionName + "\\*\\*:\\s*([^\\n]*(?:\\n(?!\\*\\*[\\u4e00-\\u9fa5]+\\*\\*:|#### \\d+\\.|\\n\\n)[^\\n]*)*)",
-            // 格式4: 简单的 趋势分析: [内容]
-            "(?:^|\\n)" + sectionName + ":\\s*([^\\n]*(?:\\n(?![\\u4e00-\\u9fa5]+:|#### |\\*\\*|\\n)[^\\n]*)*)"
-        };
+        log.debug("🔍 extractSection 开始提取 '{}'", sectionName);
+        log.debug("🔍 预处理后的文本长度: {}", text.length());
         
-        for (String patternStr : patterns) {
-            Pattern pattern = Pattern.compile(patternStr, Pattern.DOTALL | Pattern.MULTILINE);
-            Matcher matcher = pattern.matcher(text);
-            if (matcher.find()) {
-                String result = matcher.group(1).trim();
-                result = cleanExtractedContent(result);
-                if (!result.isEmpty() && result.length() > 10) { // 确保提取到有意义的内容
-                    return result;
+        // 首先尝试简单的方法：查找【sectionName】到下一个【】之间的内容
+        String sectionStart = "【" + sectionName + "】";
+        int startIndex = text.indexOf(sectionStart);
+        if (startIndex != -1) {
+            // 找到当前部分的开始位置
+            int contentStart = startIndex + sectionStart.length();
+            
+            // 查找下一个【】标记的位置
+            int nextSectionIndex = -1;
+            for (int i = contentStart; i < text.length(); i++) {
+                if (text.charAt(i) == '【') {
+                    // 检查是否是完整的【】标记
+                    int endBracketIndex = text.indexOf('】', i);
+                    if (endBracketIndex != -1) {
+                        nextSectionIndex = i;
+                        break;
+                    }
                 }
+            }
+            
+            // 提取内容
+            int contentEnd = (nextSectionIndex != -1) ? nextSectionIndex : text.length();
+            String result = text.substring(contentStart, contentEnd).trim();
+            
+            log.debug("✅ 使用手动解析成功匹配 '{}': 原始长度={}", sectionName, result.length());
+            log.debug("🔍 手动解析匹配的原始内容:\n{}", result);
+            
+            result = cleanExtractedContent(result);
+            if (!result.isEmpty() && result.length() > 10) {
+                log.debug("✅ 成功提取部分 '{}': 最终长度={}", sectionName, result.length());
+                return result;
             }
         }
         
+        // 如果简单方法失败，尝试其他格式的正则表达式
+        String[] patterns = {
+            // 格式1: ### 【公司基本面分析】... 到下一个### 【...】或文本结束
+            "### \\s*【" + sectionName + "】\\s*([\\s\\S]*?)(?=### \\s*【[^】]+】|$)",
+            // 格式2: - 趋势分析: [内容] (标准格式)
+            "- " + sectionName + ":\\s*([^\\n]*(?:\\n(?!- [\\u4e00-\\u9fa5]+:|#### \\d+\\.|\\*\\*[\\u4e00-\\u9fa5]+\\*\\*:)[^\\n]*)*)",
+            // 格式3: #### 数字. 趋势分析: [内容]
+            "#### \\d+\\. " + sectionName + ":\\s*([^\\n]*(?:\\n(?!#### \\d+\\.|\\n\\n)[^\\n]*)*)",
+            // 格式4: **趋势分析**: [内容]
+            "\\*\\*" + sectionName + "\\*\\*:\\s*([^\\n]*(?:\\n(?!\\*\\*[\\u4e00-\\u9fa5]+\\*\\*:|#### \\d+\\.|\\n\\n)[^\\n]*)*)",
+            // 格式5: 简单的 趋势分析: [内容]
+            "(?:^|\\n)" + sectionName + ":\\s*([^\\n]*(?:\\n(?![\\u4e00-\\u9fa5]+:|#### |\\*\\*|\\n)[^\\n]*)*)"
+        };
+        
+        for (int i = 0; i < patterns.length; i++) {
+            String patternStr = patterns[i];
+            Pattern altPattern = Pattern.compile(patternStr, Pattern.DOTALL | Pattern.MULTILINE);
+            Matcher altMatcher = altPattern.matcher(text);
+            if (altMatcher.find()) {
+                String result = altMatcher.group(1).trim();
+                log.debug("✅ 使用模式{}成功匹配 '{}': 原始长度={}", i, sectionName, result.length());
+                log.debug("🔍 模式{}匹配的原始内容: {}", i, result);
+                
+                result = cleanExtractedContent(result);
+                if (!result.isEmpty() && result.length() > 10) { // 确保提取到有意义的内容
+                    log.debug("✅ 成功提取部分 '{}': 最终长度={}", sectionName, result.length());
+                    return result;
+                } else {
+                    log.warn("⚠️ 模式{}匹配成功但内容无效: 长度={}", i, result.length());
+                }
+            } else {
+                log.debug("❌ 模式{}未匹配到 '{}'", i, sectionName);
+            }
+        }
+        
+        log.warn("⚠️ 未能通过正则表达式提取部分 '{}'，尝试关键词搜索", sectionName);
         // 如果都没匹配到，尝试简单的关键词搜索
         return extractByKeywordSearch(text, sectionName);
     }
@@ -241,29 +317,50 @@ public class AIAnalysisService {
     private String cleanExtractedContent(String content) {
         if (content == null) return "";
         
+        log.debug("🔍 cleanExtractedContent 输入: {}", content);
+        
         // 移除markdown格式
         content = content.replaceAll("\\*\\*", "");
         
-        // 移除可能混入的其他部分标题
-        content = content.replaceAll("\\n\\n- [\\u4e00-\\u9fa5]+:.*", "");
+        // 移除可能混入的其他部分标题（更精确的匹配）
+        content = content.replaceAll("\\n\\n- [\\u4e00-\\u9fa5]+[：:].*", ""); // 只移除包含冒号的标题行
         content = content.replaceAll("\\n#### \\d+\\. [\\u4e00-\\u9fa5]+:.*", "");
+        content = content.replaceAll("\\n【[^】]+】.*", ""); // 移除【】格式的其他标题
         
-        // 移除多余的换行和空格
-        content = content.replaceAll("\\n+", " ").trim();
+        // 清理多余的连续换行，但保留单个换行符
+        content = content.replaceAll("\\n\\s*\\n\\s*\\n+", "\n\n");
+        
+        // 按行处理，但保留以-开头的内容行
+        String[] lines = content.split("\n");
+        StringBuilder result = new StringBuilder();
+        
+        for (String line : lines) {
+            String trimmedLine = line.trim();
+            // 保留非空行，包括以-开头的内容行
+            if (!trimmedLine.isEmpty()) {
+                if (result.length() > 0) {
+                    result.append("\n");
+                }
+                result.append(trimmedLine);
+            }
+        }
+        
+        content = result.toString();
         
         // 如果内容太长，可能包含了其他部分，尝试截断
-        if (content.length() > 500) {
+        if (content.length() > 1000) {
             // 查找可能的分割点
             String[] splitPoints = {"。", "；", "!", "！"};
             for (String point : splitPoints) {
-                int index = content.indexOf(point, 300);
-                if (index > 0 && index < 500) {
+                int index = content.indexOf(point, 800);
+                if (index > 0 && index < 1000) {
                     content = content.substring(0, index + 1);
                     break;
                 }
             }
         }
         
+        log.debug("🔍 cleanExtractedContent 输出: {}", content);
         return content.trim();
     }
 
@@ -298,7 +395,8 @@ public class AIAnalysisService {
                 if (line.matches(".*[\\u4e00-\\u9fa5]+.*:.*") || 
                     line.startsWith("####") || 
                     line.startsWith("- ") ||
-                    line.startsWith("**")) {
+                    line.startsWith("**") ||
+                    line.matches("【[^】]+】.*")) { // 检查【】格式的新部分
                     break;
                 }
                 
@@ -316,17 +414,57 @@ public class AIAnalysisService {
     }
 
     /**
+     * 从财务分析数据中提取概念和行业信息
+     */
+    private String extractConceptsAndIndustries(Map<String, Object> financialAnalysis) {
+        if (financialAnalysis == null) {
+            return "无概念和行业信息";
+        }
+        
+        StringBuilder result = new StringBuilder();
+        
+        // 尝试提取概念信息
+        if (financialAnalysis.containsKey("concepts")) {
+            Object concepts = financialAnalysis.get("concepts");
+            if (concepts instanceof List) {
+                List<?> conceptList = (List<?>) concepts;
+                if (!conceptList.isEmpty()) {
+                    result.append("概念题材: ");
+                    for (int i = 0; i < Math.min(conceptList.size(), 10); i++) {
+                        if (i > 0) result.append("、");
+                        result.append(conceptList.get(i));
+                    }
+                    result.append("\n");
+                }
+            }
+        }
+        
+        // 尝试提取行业信息
+        if (financialAnalysis.containsKey("industries")) {
+            Object industries = financialAnalysis.get("industries");
+            if (industries instanceof List) {
+                List<?> industryList = (List<?>) industries;
+                if (!industryList.isEmpty()) {
+                    result.append("所属行业: ");
+                    for (int i = 0; i < Math.min(industryList.size(), 5); i++) {
+                        if (i > 0) result.append("、");
+                        result.append(industryList.get(i));
+                    }
+                    result.append("\n");
+                }
+            }
+        }
+        
+        return result.length() > 0 ? result.toString() : "无概念和行业信息";
+    }
+
+    /**
      * 创建错误结果
      */
     private AIAnalysisResult createErrorResult(String errorMessage) {
         AIAnalysisResult result = new AIAnalysisResult();
         result.setFullAnalysis("分析失败: " + errorMessage);
-        result.setTrendAnalysis("分析失败");
-        result.setTechnicalPattern("分析失败");
-        result.setMovingAverage("分析失败");
-        result.setRsiAnalysis("分析失败");
-        result.setPricePredict("分析失败");
-        result.setTradingAdvice("分析失败");
+        result.setOperationStrategy("分析失败");
         result.setIntradayOperations("分析失败");
         return result;
     }

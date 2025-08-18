@@ -116,8 +116,8 @@ class EastMoneyStockBasic:
                 'circulatingShares': stock_data.get('f85', 0),  # 流通股本
                 'totalMarketValue': stock_data.get('f116', 0),  # 总市值
                 'circulatingMarketValue': stock_data.get('f117', 0), # 流通市值
-                'peTTM': stock_data.get('f164', 0),            # 市盈率TTM
-                'pb': stock_data.get('f167', 0),               # 市净率
+                'peTTM': stock_data.get('f164', 0) / 100,            # 市盈率TTM
+                'pb': stock_data.get('f167', 0) / 100,               # 市净率   
                 'turnoverRate': stock_data.get('f168', 0),      # 换手率
                 'amplitude': stock_data.get('f171', 0),         # 振幅
                 'change': stock_data.get('f169', 0) / 100,     # 涨跌额

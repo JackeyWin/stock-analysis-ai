@@ -8,6 +8,8 @@ import {
   Alert,
   RefreshControl,
   ActivityIndicator,
+  Platform,
+  Pressable,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -286,10 +288,18 @@ const AnalysisTaskList = React.forwardRef(({ stockCode, onTaskComplete, onViewRe
           const updatedTasks = prev.map(task => {
             if (task.taskId !== taskId) return task;
             const merged = { ...task, ...status };
-            // 兼容后端未返回顶层 stockName 的情况，从 result.stockBasic 中回填
-            if (!merged.stockName) {
-              merged.stockName = status.stockName || status.result?.stockBasic?.stockName || task.stockName;
+            
+            // 优先使用API返回的stockName，然后从result中提取
+            if (status.stockName) {
+              merged.stockName = status.stockName;
+            } else if (status.result?.stockBasic?.stockName) {
+              merged.stockName = status.result.stockBasic.stockName;
+            } else if (status.result?.stockName) {
+              merged.stockName = status.result.stockName;
+            } else if (task.stockName) {
+              merged.stockName = task.stockName;
             }
+            
             if ((status.status === 'completed' || status.status === 'failed') && !merged.endTime) {
               merged.endTime = new Date();
             }
@@ -382,12 +392,16 @@ const AnalysisTaskList = React.forwardRef(({ stockCode, onTaskComplete, onViewRe
 
   // 删除任务
   const removeTask = async (taskId) => {
+    console.log('🗑️ 开始删除任务:', taskId);
+    console.log('📋 删除前任务列表:', tasks.map(t => ({ taskId: t.taskId, stockCode: t.stockCode })));
+    
     stopPolling(taskId);
     
     // 使用函数式更新确保获取到最新的tasks状态
     setTasks(prevTasks => {
       const updatedTasks = prevTasks.filter(task => task.taskId !== taskId);
       console.log('🗑️ 删除任务后，剩余任务数:', updatedTasks.length);
+      console.log('📋 删除后任务列表:', updatedTasks.map(t => ({ taskId: t.taskId, stockCode: t.stockCode })));
       
       // 异步保存到本地存储
       saveTasksToStorage(updatedTasks);
@@ -505,30 +519,63 @@ const AnalysisTaskList = React.forwardRef(({ stockCode, onTaskComplete, onViewRe
           
           <View style={styles.actionButtons}>
             {item.status === 'completed' && (
-              <TouchableOpacity 
-                style={styles.viewButton}
-                onPress={() => onViewResult && onViewResult(item)}
-              >
-                <Ionicons name="eye-outline" size={16} color="#007AFF" />
-                <Text style={styles.viewButtonText}>查看结果</Text>
-              </TouchableOpacity>
+              Platform.OS === 'web' ? (
+                <Pressable 
+                  style={styles.viewButton}
+                  onPress={() => {
+                    console.log('🖥️ Web平台查看结果按钮被点击，任务ID:', item.taskId);
+                    onViewResult && onViewResult(item);
+                  }}
+                >
+                  <Ionicons name="eye-outline" size={16} color="#007AFF" />
+                  <Text style={styles.viewButtonText}>查看结果</Text>
+                </Pressable>
+              ) : (
+                <TouchableOpacity 
+                  style={styles.viewButton}
+                  onPress={() => onViewResult && onViewResult(item)}
+                >
+                  <Ionicons name="eye-outline" size={16} color="#007AFF" />
+                  <Text style={styles.viewButtonText}>查看结果</Text>
+                </TouchableOpacity>
+              )
             )}
             
-            <TouchableOpacity 
-              style={styles.deleteButton}
-              onPress={() => {
-                Alert.alert(
-                  '确认删除',
-                  '确定要删除这个分析任务吗？',
-                  [
-                    { text: '取消', style: 'cancel' },
-                    { text: '删除', style: 'destructive', onPress: () => removeTask(item.taskId) }
-                  ]
-                );
-              }}
-            >
-              <Ionicons name="trash-outline" size={16} color="#FF3B30" />
-            </TouchableOpacity>
+            {Platform.OS === 'web' ? (
+              <Pressable 
+                style={styles.deleteButton}
+                onPress={() => {
+                  console.log('🖥️ Web平台删除按钮被点击，任务ID:', item.taskId);
+                  if (window.confirm('确定要删除这个分析任务吗？')) {
+                    console.log('✅ Web平台确认删除任务:', item.taskId);
+                    removeTask(item.taskId);
+                  }
+                }}
+              >
+                <Ionicons name="trash-outline" size={16} color="#FF3B30" />
+              </Pressable>
+            ) : (
+              <TouchableOpacity 
+                style={styles.deleteButton}
+                onPress={() => {
+                  console.log('🗑️ 删除按钮被点击，任务ID:', item.taskId);
+                  Alert.alert(
+                    '确认删除',
+                    '确定要删除这个分析任务吗？',
+                    [
+                      { text: '取消', style: 'cancel' },
+                      { text: '删除', style: 'destructive', onPress: () => {
+                        console.log('✅ 确认删除任务:', item.taskId);
+                        removeTask(item.taskId);
+                      }}
+                    ]
+                  );
+                }}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="trash-outline" size={16} color="#FF3B30" />
+              </TouchableOpacity>
+            )}
           </View>
         </View>
       </View>
@@ -594,10 +641,10 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 16,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
   },
   taskHeader: {
     flexDirection: 'row',

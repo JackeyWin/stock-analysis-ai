@@ -1,0 +1,94 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: stock-analysis-app
+  main:
+    allow-bean-definition-overriding: true
+  http:
+    encoding:
+      charset: UTF-8
+      enabled: true
+      force: true
+  
+  # Database Configuration
+  datasource:
+    url: jdbc:h2:mem:stockdb
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: 
+  
+  # JPA Configuration
+  jpa:
+    database-platform: org.hibernate.dialect.H2Dialect
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+  
+  # H2 Console (for development only)
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+
+# DeepSeek API配置
+deepseek:
+  api:
+    key: sk-2c60a0afb4004678be7c5703e940d360
+    base-url: https://api.deepseek.com
+    model: deepseek-reasoner
+
+tavily:
+  api:
+    key: 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
+
+# Python脚本路径配置
+python:
+  scripts:
+    path: python_scripts/
+    interpreter: python
+
+# 新闻情感分析配置
+news:
+  sentiment:
+    provider: deepseek  # 可选值: keyword, deepseek
+    crawl-content: true  # 是否爬取详细内容进行AI分析
+    max-pages: 1        # 最大爬取页数
+
+# 技术指标计算配置
+technical:
+  indicators:
+    max:
+      days: 500          # 最大K线数据天数
+      json-size: 100000   # 最大JSON大小(字符数)
+
+# AI选股配置
+ai:
+  stock-picker:
+    enabled: true        # 是否启用AI选股功能
+    schedule:
+      daily-time: "0 0 1 * * ?"  # 每日执行时间(凌晨1点)
+      cleanup-time: "0 0 2 * * ?" # 清理时间(凌晨2点)
+      weekly-time: "0 0 3 * * SUN" # 周度分析时间(周日凌晨3点)
+    analysis:
+      max-stocks: 30     # 最大分析股票数量
+      min-score: 7.5     # 最低推荐评分
+      sectors-limit: 5   # 每个领域最多推荐股票数
+    cache:
+      retention-days: 30 # 推荐数据保留天数
+
+# 推荐服务配置
+recommendation:
+  service:
+    enabled: true        # 是否启用推荐服务
+    auto-refresh: true   # 是否自动刷新推荐
+    max-recommendations: 20 # 最大推荐数量
+
+logging:
+  level:
+    com.stockanalysis: DEBUG
+    dev.langchain4j: DEBUG

@@ -21,7 +21,8 @@ import ApiService from '../services/ApiService';
 const { width: screenWidth } = Dimensions.get('window');
 
 export default function HomeScreen({ navigation }) {
-  const [popularStocks, setPopularStocks] = useState([]);
+  const [dailyRecommendations, setDailyRecommendations] = useState([]);
+  const [recommendationSummary, setRecommendationSummary] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [serviceStatus, setServiceStatus] = useState('unknown');
@@ -34,7 +35,7 @@ export default function HomeScreen({ navigation }) {
     try {
       setLoading(true);
       await Promise.all([
-        loadPopularStocks(),
+        loadDailyRecommendations(),
         checkServiceHealth(),
       ]);
     } catch (error) {
@@ -44,15 +45,23 @@ export default function HomeScreen({ navigation }) {
     }
   };
 
-  const loadPopularStocks = async () => {
+  const loadDailyRecommendations = async () => {
     try {
-      const response = await ApiService.getPopularStocks();
-      if (response.success) {
-        setPopularStocks(response.data);
+      // 获取推荐摘要
+      const summaryResponse = await ApiService.getDailyRecommendationSummary();
+      if (summaryResponse.success && summaryResponse.data.available) {
+        setRecommendationSummary(summaryResponse.data);
+        setDailyRecommendations(summaryResponse.data.topStocks || []);
+      } else {
+        // 如果没有推荐，显示提示信息
+        setRecommendationSummary({ available: false, message: '今日推荐暂未生成' });
+        setDailyRecommendations([]);
       }
     } catch (error) {
-      console.error('加载热门股票失败:', error);
-      Alert.alert('错误', '加载热门股票失败');
+      console.error('加载每日推荐失败:', error);
+      Alert.alert('错误', '加载每日推荐失败');
+      setRecommendationSummary({ available: false, message: '加载失败' });
+      setDailyRecommendations([]);
     }
   };
 
@@ -73,8 +82,16 @@ export default function HomeScreen({ navigation }) {
 
   const handleStockPress = (stock) => {
     navigation.navigate('StockDetail', { 
-      stockCode: stock.code,
-      stockName: stock.name,
+      stockCode: stock.stockCode,
+      stockName: stock.stockName,
+    });
+  };
+
+  const handleRecommendationDetail = (stock) => {
+    navigation.navigate('RecommendationDetail', {
+      stockCode: stock.stockCode,
+      stockName: stock.stockName,
+      recommendation: stock,
     });
   };
 
@@ -120,43 +137,107 @@ export default function HomeScreen({ navigation }) {
 
 
 
-      {/* 热门股票 */}
+      {/* AI每日推荐 */}
       <Card style={styles.card}>
         <Card.Content>
-          <Title>热门股票</Title>
-          <Paragraph style={styles.smallText}>点击查看详情或快速分析</Paragraph>
-          <Divider style={{ marginVertical: 8 }} />
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Title>🤖 AI每日推荐</Title>
+            {recommendationSummary?.available && (
+              <Chip
+                icon="star"
+                style={{ backgroundColor: theme.colors.primary }}
+                textStyle={{ color: 'white' }}
+              >
+                {recommendationSummary.totalCount}只
+              </Chip>
+            )}
+          </View>
           
-          {popularStocks.map((stock, index) => (
-            <View key={stock.code} style={{ marginVertical: 4 }}>
-              <View style={{ 
-                flexDirection: 'row', 
-                justifyContent: 'space-between', 
-                alignItems: 'center',
-                paddingVertical: 8,
-              }}>
-                <View style={{ flex: 1 }}>
-                  <Paragraph style={styles.text}>
-                    {stock.name} ({stock.code})
-                  </Paragraph>
-                  <Paragraph style={styles.smallText}>
-                    {stock.market === 'SH' ? '上海' : '深圳'}
+          {recommendationSummary?.available ? (
+            <>
+              <Paragraph style={styles.smallText}>
+                {recommendationSummary.date} | 基于AI分析的优质股票推荐
+              </Paragraph>
+              <Divider style={{ marginVertical: 8 }} />
+              
+              {dailyRecommendations.map((stock, index) => (
+                <View key={stock.stockCode} style={{ marginVertical: 4 }}>
+                  <View style={{ 
+                    flexDirection: 'row', 
+                    justifyContent: 'space-between', 
+                    alignItems: 'center',
+                    paddingVertical: 8,
+                  }}>
+                    <View style={{ flex: 1 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <Paragraph style={styles.text}>
+                          {stock.stockName} ({stock.stockCode})
+                        </Paragraph>
+                        {stock.isHot && (
+                          <Chip
+                            icon="fire"
+                            style={{ 
+                              backgroundColor: theme.colors.loss, 
+                              marginLeft: 8,
+                              height: 24,
+                            }}
+                            textStyle={{ color: 'white', fontSize: 10 }}
+                          >
+                            热门
+                          </Chip>
+                        )}
+                      </View>
+                      <Paragraph style={styles.smallText}>
+                        {stock.sector} | 评分: {stock.score?.toFixed(1)}/10 | {stock.rating}
+                      </Paragraph>
+                      <Paragraph style={[styles.smallText, { color: theme.colors.primary }]}>
+                        {stock.recommendationReason?.substring(0, 50)}...
+                      </Paragraph>
+                    </View>
+                    
+                    <View style={{ flexDirection: 'row', gap: 8 }}>
+                      <Button
+                        mode="outlined"
+                        compact
+                        onPress={() => handleStockPress(stock)}
+                      >
+                        分析
+                      </Button>
+                      <Button
+                        mode="contained"
+                        compact
+                        onPress={() => handleRecommendationDetail(stock)}
+                      >
+                        推荐详情
+                      </Button>
+                    </View>
+                  </View>
+                  {index < dailyRecommendations.length - 1 && <Divider />}
+                </View>
+              ))}
+              
+              {recommendationSummary.summary && (
+                <View style={{ marginTop: 12, padding: 12, backgroundColor: theme.colors.surface, borderRadius: 8 }}>
+                  <Paragraph style={[styles.smallText, { fontStyle: 'italic' }]}>
+                    {recommendationSummary.summary.substring(0, 100)}...
                   </Paragraph>
                 </View>
-                
-                <View style={{ flexDirection: 'row', gap: 8 }}>
-                  <Button
-                    mode="contained"
-                    compact
-                    onPress={() => handleStockPress(stock)}
-                  >
-                    详情
-                  </Button>
-                </View>
-              </View>
-              {index < popularStocks.length - 1 && <Divider />}
+              )}
+            </>
+          ) : (
+            <View style={{ alignItems: 'center', paddingVertical: 20 }}>
+              <Paragraph style={styles.text}>
+                {recommendationSummary?.message || '今日推荐暂未生成'}
+              </Paragraph>
+              <Button
+                mode="outlined"
+                onPress={loadDailyRecommendations}
+                style={{ marginTop: 8 }}
+              >
+                刷新
+              </Button>
             </View>
-          ))}
+          )}
         </Card.Content>
       </Card>
 

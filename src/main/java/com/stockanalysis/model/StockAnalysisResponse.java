@@ -33,6 +33,12 @@ public class StockAnalysisResponse {
     // 融资融券数据
     private MarginTradingData marginTradingData;
     
+    // 同行比较数据
+    private Map<String, Object> peerComparison;
+    
+    // 财务分析数据
+    private Map<String, Object> financialAnalysis;
+    
     // AI分析结果
     private AIAnalysisResult aiAnalysisResult;
     

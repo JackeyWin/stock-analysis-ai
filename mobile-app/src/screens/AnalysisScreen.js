@@ -36,13 +36,28 @@ export default function AnalysisScreen({ navigation, route }) {
   const [analysisResult, setAnalysisResult] = useState(null);
   
   // 新增状态管理
-  const [showTaskList, setShowTaskList] = useState(false);
   const [selectedResult, setSelectedResult] = useState(null);
   const [showResultModal, setShowResultModal] = useState(false);
   const taskListRef = useRef(null);
-  const [stockCodeToAnalyze, setStockCodeToAnalyze] = useState(null); // New state
+  const [stockCodeToAnalyze, setStockCodeToAnalyze] = useState(''); // New state
   const [recentStocks, setRecentStocks] = useState([]); // 最近分析的股票
-  const [showHistory, setShowHistory] = useState(false); // 显示历史记录
+  const [isRecentStocksCollapsed, setIsRecentStocksCollapsed] = useState(true); // 最近分析股票的折叠状态
+  
+  // 返回顶部按钮状态
+  const [showScrollTop, setShowScrollTop] = useState(false);
+  const scrollViewRef = useRef(null);
+
+  // 处理滚动事件
+  const handleScroll = (event) => {
+    const offsetY = event.nativeEvent.contentOffset.y;
+    // 当滚动超过200px时显示返回顶部按钮
+    setShowScrollTop(offsetY > 200);
+  };
+
+  // 返回顶部
+  const scrollToTop = () => {
+    scrollViewRef.current?.scrollTo({ y: 0, animated: true });
+  };
 
   // 移除不必要的变量
 
@@ -54,7 +69,6 @@ export default function AnalysisScreen({ navigation, route }) {
 
     // 只支持综合分析，使用异步列表模式
     setStockCodeToAnalyze(stockCode.trim());
-    setShowTaskList(true);
     setStockCode('');
   };
 
@@ -94,22 +108,7 @@ export default function AnalysisScreen({ navigation, route }) {
 
 
 
-  // 当任务列表模态框打开时，刷新任务列表
-  useEffect(() => {
-    if (showTaskList && taskListRef.current) {
-      console.log('🔄 任务列表模态框已打开，刷新任务列表');
-      taskListRef.current.loadTasks();
-    }
-  }, [showTaskList]);
 
-  const navigateToDetail = () => {
-    if (stockCode.trim()) {
-      navigation.navigate('StockDetail', {
-        stockCode: stockCode.trim(),
-        stockName: `股票 ${stockCode.trim()}`,
-      });
-    }
-  };
 
   // 处理任务完成：自动写入分析历史
   const handleTaskComplete = async (task) => {
@@ -184,27 +183,25 @@ export default function AnalysisScreen({ navigation, route }) {
     setSelectedResult(null);
   };
 
-  // 关闭任务列表并清理将要自动添加的股票代码，避免重复任务
-  const handleCloseTaskList = () => {
-    setShowTaskList(false);
-    setStockCodeToAnalyze(null);
-  };
+
 
   // 快速选择最近分析的股票
   const handleQuickSelect = (stock) => {
     setStockCode(stock.code);
   };
 
-  // 切换历史记录显示
-  const toggleHistory = () => {
-    setShowHistory(!showHistory);
-  };
+
 
   // 移除图表相关函数，简化功能
 
   return (
     <View style={{ flex: 1 }}>
-      <ScrollView style={styles.container}>
+      <ScrollView 
+        ref={scrollViewRef}
+        style={styles.container}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
+      >
         {/* 分析输入 */}
         <Card style={styles.card}>
           <Card.Content>
@@ -240,21 +237,32 @@ export default function AnalysisScreen({ navigation, route }) {
             {/* 最近分析的股票 */}
             {recentStocks.length > 0 && (
               <View style={{ marginBottom: 16 }}>
-                <Paragraph style={[styles.smallText, { marginBottom: 8 }]}>
-                  最近分析:
-                </Paragraph>
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                  {recentStocks.map((stock) => (
-                    <Chip
-                      key={stock.code}
-                      mode="outlined"
-                      onPress={() => handleQuickSelect(stock)}
-                      style={{ marginBottom: 4 }}
-                    >
-                      {stock.code} - {stock.name}
-                    </Chip>
-                  ))}
-                </View>
+                <TouchableOpacity 
+                  style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}
+                  onPress={() => setIsRecentStocksCollapsed(!isRecentStocksCollapsed)}
+                >
+                  <Paragraph style={[styles.smallText, { flex: 1 }]}>最近分析:</Paragraph>
+                  <Ionicons 
+                    name={isRecentStocksCollapsed ? "chevron-down" : "chevron-up"} 
+                    size={20} 
+                    color="#999" 
+                  />
+                </TouchableOpacity>
+                
+                {!isRecentStocksCollapsed && (
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                    {recentStocks.map((stock) => (
+                      <Chip
+                        key={stock.code}
+                        mode="outlined"
+                        onPress={() => handleQuickSelect(stock)}
+                        style={{ marginBottom: 4 }}
+                      >
+                        {stock.code} - {stock.name}
+                      </Chip>
+                    ))}
+                  </View>
+                )}
               </View>
             )}
 
@@ -268,14 +276,21 @@ export default function AnalysisScreen({ navigation, route }) {
               >
                 开始综合分析
               </Button>
-              <Button
-                mode="outlined"
-                onPress={navigateToDetail}
-                disabled={!stockCode.trim()}
-              >
-                查看详情
-              </Button>
+
             </View>
+          </Card.Content>
+        </Card>
+
+        {/* 任务列表 */}
+        <Card style={styles.card}>
+          <Card.Content>
+            <Title>任务列表</Title>
+            <AnalysisTaskList
+              ref={taskListRef}
+              stockCode={stockCodeToAnalyze}
+              onTaskComplete={handleTaskComplete}
+              onViewResult={handleViewResult}
+            />
           </Card.Content>
         </Card>
 
@@ -341,66 +356,8 @@ export default function AnalysisScreen({ navigation, route }) {
 
 
 
-        {/* 分析历史 */}
-        <Card style={styles.card}>
-          <Card.Content>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Title>分析历史</Title>
-              <Button
-                mode="outlined"
-                compact
-                onPress={toggleHistory}
-              >
-                {showHistory ? '隐藏' : '查看'}
-              </Button>
-            </View>
-            <Paragraph style={styles.smallText}>
-              最近一周的分析记录，最多显示10条
-            </Paragraph>
-            
-            {showHistory && (
-              <View style={{ marginTop: 16 }}>
-                <AnalysisHistoryList
-                  onSelectHistory={(historyItem) => {
-                    setStockCode(historyItem.stockCode);
-                    setShowHistory(false);
-                  }}
-                  onRefresh={loadRecentStocks}
-                />
-              </View>
-            )}
-          </Card.Content>
-        </Card>
-      </ScrollView>
 
-      {/* 任务列表模态框 */}
-      <Modal
-        visible={showTaskList}
-        animationType="slide"
-        presentationStyle="pageSheet"
-      >
-        <View style={{ flex: 1, backgroundColor: '#F2F2F7' }}>
-          <View style={{ 
-            flexDirection: 'row', 
-            justifyContent: 'space-between', 
-            alignItems: 'center',
-            padding: 16,
-            backgroundColor: '#FFFFFF',
-            borderBottomWidth: 1,
-            borderBottomColor: '#E5E5EA'
-          }}>
-            <Title>综合分析任务列表</Title>
-            <Button onPress={handleCloseTaskList}>关闭</Button>
-          </View>
-          
-          <AnalysisTaskList
-            ref={taskListRef}
-            stockCode={stockCodeToAnalyze}
-            onTaskComplete={handleTaskComplete}
-            onViewResult={handleViewResult}
-          />
-        </View>
-      </Modal>
+      </ScrollView>
 
       {/* 分析结果模态框 */}
       <Modal
@@ -416,20 +373,20 @@ export default function AnalysisScreen({ navigation, route }) {
         />
         )}
       </Modal>
-
-      {/* 浮动操作按钮 */}
-      <FAB
-        style={{
-          position: 'absolute',
-          margin: 16,
-          right: 0,
-          bottom: 0,
-          backgroundColor: theme.colors.primary,
-        }}
-        icon="list"
-        onPress={() => setShowTaskList(true)}
-        label="任务列表"
-      />
+      
+      {/* 返回顶部按钮 */}
+      {showScrollTop && (
+        <FAB
+          icon="arrow-up"
+          style={{
+            position: 'absolute',
+            margin: 16,
+            right: 0,
+            bottom: 0,
+          }}
+          onPress={scrollToTop}
+        />
+      )}
     </View>
   );
 }

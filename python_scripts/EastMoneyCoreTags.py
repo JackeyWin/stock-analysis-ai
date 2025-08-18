@@ -84,39 +84,54 @@ def _clean_chip_text(text: str) -> str:
     s = s.replace("行业", "").replace("地区", "").strip()
     return s
 
-def fetch_by_render(stock_code: str) -> Tuple[List[str], List[str]]:
+def fetch_by_render(stock_code: str, max_retries: int = 3) -> Tuple[List[str], List[str]]:
     if not HAS_PLAYWRIGHT:
         return [], []
     url = f"https://emweb.securities.eastmoney.com/pc_hsf10/pages/index.html?type=web&code={stock_code}&color=b#/hxtc"
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        page = browser.new_page(user_agent=HEADERS["User-Agent"])
-        page.goto(url, wait_until="networkidle", timeout=45000)
+    
+    for attempt in range(max_retries):
         try:
-            page.wait_for_selector(".section.gntc .gntc_content ul.board li", timeout=4000)
-        except Exception:
-            pass
-        concepts_raw = page.eval_on_selector_all(
-            ".section.gntc .gntc_content ul.board li",
-            "els => els.map(e => (e.textContent||'').trim())"
-        ) or []
-        industries_raw = page.eval_on_selector_all(
-            ".section.tcxq .hxtccontent ul.board li.boardName",
-            "els => els.map(e => (e.textContent||'').trim())"
-        ) or []
-        def clean_list(lst: List[str]) -> List[str]:
-            cleaned = []
-            seen = set()
-            for t in lst:
-                ct = _clean_chip_text(t)
-                if ct and ct not in seen and re.search(r"[\u4e00-\u9fa5A-Za-z0-9]", ct):
-                    seen.add(ct)
-                    cleaned.append(ct)
-            return cleaned
-        concepts = clean_list(concepts_raw)
-        industries = clean_list(industries_raw)
-        browser.close()
-        return concepts[:50], industries[:50]
+            with sync_playwright() as p:
+                browser = p.chromium.launch(headless=True)
+                page = browser.new_page(user_agent=HEADERS["User-Agent"])
+                page.goto(url, wait_until="networkidle", timeout=45000)
+                try:
+                    page.wait_for_selector(".section.gntc .gntc_content ul.board li", timeout=4000)
+                except Exception:
+                    pass
+                concepts_raw = page.eval_on_selector_all(
+                    ".section.gntc .gntc_content ul.board li",
+                    "els => els.map(e => (e.textContent||'').trim())"
+                ) or []
+                industries_raw = page.eval_on_selector_all(
+                    ".section.tcxq .hxtccontent ul.board li.boardName",
+                    "els => els.map(e => (e.textContent||'').trim())"
+                ) or []
+                def clean_list(lst: List[str]) -> List[str]:
+                    cleaned = []
+                    seen = set()
+                    for t in lst:
+                        ct = _clean_chip_text(t)
+                        if ct and ct not in seen and re.search(r"[\u4e00-\u9fa5A-Za-z0-9]", ct):
+                            seen.add(ct)
+                            cleaned.append(ct)
+                    return cleaned
+                concepts = clean_list(concepts_raw)
+                industries = clean_list(industries_raw)
+                browser.close()
+                return concepts[:50], industries[:50]
+        except Exception as e:
+            # 如果不是最后一次尝试，打印重试信息
+            if attempt < max_retries - 1:
+                print(f"Warning: Playwright rendering attempt {attempt + 1} failed for {stock_code}: {str(e)}", file=sys.stderr)
+                continue
+            else:
+                # 最后一次尝试失败，返回空列表而不是让程序崩溃
+                print(f"Warning: Playwright rendering failed for {stock_code} after {max_retries} attempts: {str(e)}", file=sys.stderr)
+                return [], []
+    
+    # 如果所有重试都失败了，返回空列表
+    return [], []
 
 
 def fetch_core_tags(stock_code: str) -> Dict[str, List[str]]:

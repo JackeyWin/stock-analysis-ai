@@ -92,6 +92,13 @@
    # 启动cloudflared tunnel
    cloudflared tunnel run 7f4a57f9-f94f-410f-bca2-de60f86886ea 
 
+   # 重载前端页面
+   cd mobile-app 
+   npx expo export --platform web
+   xcopy /E /I /Y dist D:\nginx-1.29.0\html\stock-app 
+   cd D:\nginx-1.29.0 
+   .\nginx.exe -s reload 
+
 4. **访问应用**
    - 后端服务: http://localhost:8080
    - API网关: http://localhost:3001

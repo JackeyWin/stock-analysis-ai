@@ -45,8 +45,9 @@ export const styles = {
     backgroundColor: theme.colors.background,
   },
   card: {
-    margin: 8,
-    elevation: 4,
+    marginHorizontal: 8,
+    marginVertical: 4,
+    elevation: 2,
     backgroundColor: theme.colors.surface,
   },
   header: {

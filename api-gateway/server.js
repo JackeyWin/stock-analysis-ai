@@ -53,7 +53,7 @@ app.post('/api/mobile/stock/analyze', async (req, res) => {
         console.log('代理股票分析请求:', req.body);
         
         const response = await axios.post(
-            `${STOCK_ANALYSIS_SERVICE_URL}/api/stock/analyze`,
+            `${STOCK_ANALYSIS_SERVICE_URL}/api/stocks/analyze`,
             req.body,
             {
                 headers: {
@@ -100,7 +100,7 @@ app.post('/api/mobile/stock/analyze', async (req, res) => {
 app.post('/api/mobile/stock/quick-analyze', async (req, res) => {
     try {
         const response = await axios.post(
-            `${STOCK_ANALYSIS_SERVICE_URL}/api/stock/quick-analyze`,
+            `${STOCK_ANALYSIS_SERVICE_URL}/api/stocks/quick-analyze`,
             req.body,
             {
                 headers: {
@@ -128,7 +128,7 @@ app.post('/api/mobile/stock/quick-analyze', async (req, res) => {
 app.post('/api/mobile/stock/risk-assessment', async (req, res) => {
     try {
         const response = await axios.post(
-            `${STOCK_ANALYSIS_SERVICE_URL}/api/stock/risk-assessment`,
+            `${STOCK_ANALYSIS_SERVICE_URL}/api/stocks/risk-assessment`,
             req.body,
             {
                 headers: {
@@ -157,7 +157,7 @@ app.get('/api/mobile/stock/analyze/:stockCode', async (req, res) => {
     try {
         const { stockCode } = req.params;
         const response = await axios.get(
-            `${STOCK_ANALYSIS_SERVICE_URL}/api/stock/analyze/${stockCode}`,
+            `${STOCK_ANALYSIS_SERVICE_URL}/api/stocks/analyze/${stockCode}`,
             { timeout: 600000 }  // 简单分析10分钟超时
         );
         
@@ -288,7 +288,7 @@ async function performAsyncAnalysis(jobId, stockCode) {
         
         // 执行实际分析
         const response = await axios.post(
-            `${STOCK_ANALYSIS_SERVICE_URL}/api/stock/analyze`,
+            `${STOCK_ANALYSIS_SERVICE_URL}/api/stocks/analyze`,
             { stockCode },
             {
                 headers: { 'Content-Type': 'application/json' },

@@ -11,7 +11,8 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 
 const AnalysisResultView = ({ result, stockCode, onClose }) => {
-  const [expandedSections, setExpandedSections] = useState(new Set(['summary']));
+  // 默认展开"公司基本面分析"、"行业趋势和政策导向"、"操作策略"、"盘面分析"
+  const [expandedSections, setExpandedSections] = useState(new Set(['companyFundamentalAnalysis', 'industryPolicyOrientation', 'operationStrategy', 'intradayOperations']));
 
   // 获取股票名称
   const getStockName = () => {
@@ -114,7 +115,11 @@ const AnalysisResultView = ({ result, stockCode, onClose }) => {
         
         {isExpanded && (
           <View style={styles.sectionContent}>
-            <Text style={styles.contentText}>{content}</Text>
+            {typeof content === 'string' ? (
+              <Text style={styles.contentText}>{content}</Text>
+            ) : (
+              content
+            )}
           </View>
         )}
       </View>
@@ -212,16 +217,167 @@ const AnalysisResultView = ({ result, stockCode, onClose }) => {
   
 
 
+  // 通用内容格式化：处理多行内容，支持[H]/[S]标签；小标题( [H] )加粗且字号变大；子标题( [S] )加粗但内容不换行
+  const renderFormattedContent = (text) => {
+    if (!text) return null;
+    
+    // 按换行符分割内容
+    const lines = text.split('\n')
+      .map(line => line.trim())
+      .filter(line => line.length > 0);
+    
+    return (
+      <View>
+        {lines.map((line, lineIndex) => {
+          // 仅处理以"-"开头的结构化行
+          if (line.startsWith('-')) {
+            // [H] 小标题：- [H] 标题：内容(可选)
+            if (/^\-\s*\[H\]\s*/.test(line)) {
+              const rest = line.replace(/^\-\s*\[H\]\s*/, '');
+              const colonIndex = rest.indexOf('：');
+              const title = colonIndex !== -1 ? rest.substring(0, colonIndex) : rest;
+              const content = colonIndex !== -1 ? rest.substring(colonIndex + 1).trim() : '';
+              return (
+                <View key={lineIndex} style={{ marginBottom: 8 }}>
+                  <Text style={[styles.contentText, { fontWeight: 'bold', fontSize: 16, color: '#007AFF', marginBottom: 4 }]}>
+                    {title}
+                  </Text>
+                  {content ? (
+                    <Text style={[styles.contentText, { marginLeft: 16 }]}>
+                      {content}
+                    </Text>
+                  ) : null}
+                </View>
+              );
+            }
+            
+            // [S] 子标题：- [S] 子标题：内容(同一行)
+            if (/^\-\s*\[S\]\s*/.test(line)) {
+              const rest = line.replace(/^\-\s*\[S\]\s*/, '');
+              let idx = rest.indexOf('：');
+              if (idx === -1) idx = rest.indexOf(':');
+              const label = idx !== -1 ? rest.substring(0, idx) : rest;
+              const content = idx !== -1 ? rest.substring(idx + 1).trim() : '';
+              return (
+                <View key={lineIndex} style={{ marginBottom: 6, flexDirection: 'row', alignItems: 'flex-start', marginLeft: 16 }}>
+                  <Text style={[styles.contentText, { fontWeight: 'bold', fontSize: 14, color: '#333', marginRight: 8 }]}>
+                    {label}{idx !== -1 ? '：' : ''}
+                  </Text>
+                  {content ? (
+                    <Text style={[styles.contentText, { flex: 1, fontSize: 14 }]}>
+                      {content}
+                    </Text>
+                  ) : null}
+                </View>
+              );
+            }
+
+            // 向后兼容：**小标题** 和 **子标题** 标记
+            if (line.includes('**')) {
+              // 小标题：- **标题**：内容
+              const hMatch = line.match(/^\-\s*\*\*(.*?)\*\*\s*：/);
+              if (hMatch) {
+                const title = hMatch[1];
+                const content = line.replace(/^\-\s*\*\*(.*?)\*\*\s*：/, '').trim();
+                return (
+                  <View key={lineIndex} style={{ marginBottom: 8 }}>
+                    <Text style={[styles.contentText, { fontWeight: 'bold', fontSize: 16, color: '#007AFF', marginBottom: 4 }]}>
+                      {title}
+                    </Text>
+                    {content ? (
+                      <Text style={[styles.contentText, { marginLeft: 16 }]}>
+                        {content}
+                      </Text>
+                    ) : null}
+                  </View>
+                );
+              }
+
+              // 子标题：- **子标题**：内容（同一行）
+              const sMatch = line.match(/^\-\s*\*\*(.*?)\*\*\s*：/);
+              if (sMatch) {
+                const subTitle = sMatch[1];
+                const content = line.replace(/^\-\s*\*\*(.*?)\*\*\s*：/, '').trim();
+                return (
+                  <View key={lineIndex} style={{ marginBottom: 6, flexDirection: 'row', alignItems: 'flex-start', marginLeft: 16 }}>
+                    <Text style={[styles.contentText, { fontWeight: 'bold', fontSize: 14, color: '#333', marginRight: 8 }]}>
+                      {subTitle}：
+                    </Text>
+                    <Text style={[styles.contentText, { flex: 1, fontSize: 14 }]}>
+                      {content}
+                    </Text>
+                  </View>
+                );
+              }
+            }
+
+            // 普通 "-" 行：按第一个冒号分两行显示（标题加粗，内容缩进）
+            const colonIndex = line.indexOf('：');
+            if (colonIndex !== -1) {
+              const title = line.substring(0, colonIndex + 1);
+              const content = line.substring(colonIndex + 1).trim();
+              return (
+                <View key={lineIndex} style={{ marginBottom: 4 }}>
+                  <Text style={[styles.contentText, { fontWeight: 'bold' }]}>
+                    {title}
+                  </Text>
+                  {content ? (
+                    <Text style={[styles.contentText, { marginLeft: 8 }]}>
+                      {content}
+                    </Text>
+                  ) : null}
+                </View>
+              );
+            }
+
+            // 没有冒号：整行加粗
+            return (
+              <Text key={lineIndex} style={[styles.contentText, { fontWeight: 'bold', marginBottom: 4 }]}>
+                {line}
+              </Text>
+            );
+          }
+
+          // 非结构化行：普通文本
+          return (
+            <Text key={lineIndex} style={[styles.contentText, { marginBottom: 4 }]}>
+              {line}
+            </Text>
+          );
+        })}
+      </View>
+    );
+  };
+
+  // 操作策略内容格式化：直接显示内容，保持换行格式
+  const renderOperationStrategy = (text) => {
+    return renderFormattedContent(text);
+  };
+
   // 智能提取AI分析内容
   const extractAiContent = () => {
     const sections = [];
     
+    
+    
     // 只处理对象类型的AI分析结果，忽略字符串类型的fullAnalysis
     if (typeof aiAnalysis === 'object' && aiAnalysis !== null) {
-      // 如果是对象，直接使用各个字段
-      Object.entries(aiAnalysis).forEach(([key, value]) => {
+      // 定义显示顺序
+      const displayOrder = [
+        'companyFundamentalAnalysis',
+        'industryPolicyOrientation', 
+        'operationStrategy',
+        'intradayOperations'
+      ];
+      
+      // 按照指定顺序处理字段
+      displayOrder.forEach(key => {
+        const value = aiAnalysis[key];
         if (value && typeof value === 'string' && value.trim()) {
+          
+          
           let title = key;
+          let sectionKey = key;
           
           // 映射字段名到中文标题 - 根据aiAnalysisResult字段名
           const titleMap = {
@@ -232,6 +388,9 @@ const AnalysisResultView = ({ result, stockCode, onClose }) => {
             'rsiAnalysis': 'RSI指标',
             'pricePredict': '价格预测',
             'tradingAdvice': '交易建议',
+            'companyFundamentalAnalysis': '公司基本面分析',
+            'industryPolicyOrientation': '行业趋势和政策导向',
+            'operationStrategy': '操作策略',
             'intradayOperations': '盘面分析',
             'recommendation': '投资建议',
             'riskAnalysis': '风险分析',
@@ -240,7 +399,52 @@ const AnalysisResultView = ({ result, stockCode, onClose }) => {
           };
           
           title = titleMap[key] || key;
-          sections.push({ title, content: value });
+          // 统一key（用于默认展开控制）
+          if (key === 'companyFundamentalAnalysis') sectionKey = 'companyFundamentalAnalysis';
+          else if (key === 'industryPolicyOrientation') sectionKey = 'industryPolicyOrientation';
+          else if (key === 'operationStrategy') sectionKey = 'operationStrategy';
+          else if (key === 'intradayOperations') sectionKey = 'intradayOperations';
+          else sectionKey = `sec_${key}`;
+
+          // 所有分析部分都做结构化渲染，保持多行格式
+          const contentNode = renderFormattedContent(value);
+          sections.push({ title, content: contentNode, key: sectionKey });
+        }
+      });
+      
+      // 处理其他字段（不在指定顺序中的）
+      Object.entries(aiAnalysis).forEach(([key, value]) => {
+        if (!displayOrder.includes(key) && value && typeof value === 'string' && value.trim()) {
+          
+          
+          let title = key;
+          let sectionKey = key;
+          
+          // 映射字段名到中文标题
+          const titleMap = {
+            'summary': 'AI分析摘要',
+            'trendAnalysis': '趋势分析',
+            'technicalPattern': '技术形态',
+            'movingAverage': '移动平均线',
+            'rsiAnalysis': 'RSI指标',
+            'pricePredict': '价格预测',
+            'tradingAdvice': '交易建议',
+            'companyFundamentalAnalysis': '公司基本面分析',
+            'industryPolicyOrientation': '行业趋势和政策导向',
+            'operationStrategy': '操作策略',
+            'intradayOperations': '盘面分析',
+            'recommendation': '投资建议',
+            'riskAnalysis': '风险分析',
+            'marketSentiment': '市场情绪',
+            'outlook': '未来展望'
+          };
+          
+          title = titleMap[key] || key;
+          sectionKey = `sec_${key}`;
+
+          // 所有分析部分都做结构化渲染，保持多行格式
+          const contentNode = renderFormattedContent(value);
+          sections.push({ title, content: contentNode, key: sectionKey });
         }
       });
     }
@@ -266,6 +470,12 @@ const AnalysisResultView = ({ result, stockCode, onClose }) => {
         return 'calendar-outline';
       case '交易建议':
         return 'trending-up-outline';
+      case '公司基本面分析':
+        return 'business-outline';
+      case '行业趋势和政策导向':
+        return 'trending-up-outline';
+      case '操作策略':
+        return 'compass-outline';
       case '盘面分析':
         return 'time-outline';
       case '投资建议':
@@ -314,7 +524,7 @@ const AnalysisResultView = ({ result, stockCode, onClose }) => {
               {renderSection(
                 section.title,
                 section.content,
-                `ai_section_${index}`,
+                section.key || `ai_section_${index}`,
                 getSectionIcon(section.title)
               )}
             </View>

@@ -1,16 +1,21 @@
 package com.stockanalysis.service;
 
 import com.stockanalysis.model.*;
+import com.stockanalysis.service.DailyRecommendationStorageService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.HashMap;
+import java.time.Duration;
 
 /**
  * 股票分析服务
@@ -21,13 +26,54 @@ public class StockAnalysisService {
 
     private final PythonScriptService pythonScriptService;
     private final AIAnalysisService aiAnalysisService;
+    private final DailyRecommendationStorageService dailyRecommendationStorageService;
     private final ExecutorService executorService;
+    
+    // 缓存相关
+    private final Map<String, CacheEntry<List<Map<String, Object>>>> stockDataCache = new ConcurrentHashMap<>();
+    private final Map<String, CacheEntry<Map<String, Object>>> technicalIndicatorsCache = new ConcurrentHashMap<>();
+    private final Map<String, CacheEntry<List<Map<String, Object>>>> newsDataCache = new ConcurrentHashMap<>();
+    
+    // 缓存过期时间配置
+    private static final Duration STOCK_DATA_CACHE_DURATION = Duration.ofMinutes(5);
+    private static final Duration TECHNICAL_INDICATORS_CACHE_DURATION = Duration.ofMinutes(3);
+    private static final Duration NEWS_DATA_CACHE_DURATION = Duration.ofMinutes(10);
+    
+    // 性能监控相关
+    private final Map<String, Long> performanceMetrics = new ConcurrentHashMap<>();
+    
+    /**
+     * 缓存条目类
+     */
+    private static class CacheEntry<T> {
+        private final T data;
+        private final LocalDateTime timestamp;
+        
+        public CacheEntry(T data) {
+            this.data = data;
+            this.timestamp = LocalDateTime.now();
+        }
+        
+        public T getData() {
+            return data;
+        }
+        
+        public boolean isExpired(Duration duration) {
+            return LocalDateTime.now().isAfter(timestamp.plus(duration));
+        }
+    }
 
     public StockAnalysisService(PythonScriptService pythonScriptService, 
-                               AIAnalysisService aiAnalysisService) {
+                               AIAnalysisService aiAnalysisService,
+                               DailyRecommendationStorageService dailyRecommendationStorageService) {
         this.pythonScriptService = pythonScriptService;
         this.aiAnalysisService = aiAnalysisService;
+        this.dailyRecommendationStorageService = dailyRecommendationStorageService;
         this.executorService = Executors.newFixedThreadPool(6);
+    }
+    
+    public DailyRecommendationStorageService getDailyRecommendationStorageService() {
+        return dailyRecommendationStorageService;
     }
 
     /**
@@ -35,15 +81,21 @@ public class StockAnalysisService {
      */
     public StockAnalysisResponse analyzeStock(StockAnalysisRequest request) {
         String stockCode = request.getStockCode();
+        long startTime = System.currentTimeMillis();
         log.info("开始分析股票: {}", stockCode);
 
         StockAnalysisResponse response = new StockAnalysisResponse();
         response.setStockCode(stockCode);
 
         try {
-            // 并行获取各种数据
+            // 记录各阶段开始时间
+            long dataFetchStartTime = System.currentTimeMillis();
+            // 清理过期缓存
+            cleanExpiredCache();
+            
+            // 并行获取各种数据（使用缓存优化）
             CompletableFuture<List<Map<String, Object>>> stockDataFuture = 
-                CompletableFuture.supplyAsync(() -> pythonScriptService.getStockKlineData(stockCode), executorService);
+                CompletableFuture.supplyAsync(() -> getCachedStockData(stockCode), executorService);
             
             CompletableFuture<List<Map<String, Object>>> marketDataFuture = 
                 CompletableFuture.supplyAsync(() -> pythonScriptService.getMarketKlineData(stockCode), executorService);
@@ -52,7 +104,7 @@ public class StockAnalysisService {
                 CompletableFuture.supplyAsync(() -> pythonScriptService.getBoardKlineData(stockCode), executorService);
             
             CompletableFuture<List<Map<String, Object>>> newsDataFuture = 
-                CompletableFuture.supplyAsync(() -> pythonScriptService.getNewsData(stockCode), executorService);
+                CompletableFuture.supplyAsync(() -> getCachedNewsData(stockCode), executorService);
             
             CompletableFuture<List<Map<String, Object>>> moneyFlowDataFuture =
                 CompletableFuture.supplyAsync(() -> pythonScriptService.getMoneyFlowData(stockCode), executorService);
@@ -62,8 +114,96 @@ public class StockAnalysisService {
             
             CompletableFuture<Map<String, Object>> intradayAnalysisFuture =
                 CompletableFuture.supplyAsync(() -> pythonScriptService.getIntradayAnalysis(stockCode), executorService);
+            
+            CompletableFuture<Map<String, Object>> peerComparisonFuture =
+                CompletableFuture.supplyAsync(() -> pythonScriptService.getPeerComparisonData(stockCode), executorService);
+            
+            CompletableFuture<Map<String, Object>> financialAnalysisFuture =
+                CompletableFuture.supplyAsync(() -> pythonScriptService.getFinancialAnalysisData(stockCode), executorService);
 
-            // 等待基础数据获取完成
+            CompletableFuture<Map<String, Object>> coreTagsFuture =
+                CompletableFuture.supplyAsync(() -> pythonScriptService.getCoreTagsData(stockCode), executorService);
+
+            // 注释：原本的 allDataFuture 已被后续的 allDataFuture2 替代
+
+            // 在数据获取的同时，准备技术指标计算的异步任务（使用缓存优化）
+            CompletableFuture<Map<String, Object>> technicalIndicatorsFuture = 
+                stockDataFuture.thenApplyAsync(stockData -> {
+                    log.debug("开始计算股票技术指标");
+                    return getCachedTechnicalIndicators(stockCode, stockData);
+                }, executorService);
+
+            CompletableFuture<Map<String, Object>> marketTechnicalIndicatorsFuture = 
+                marketDataFuture.thenApplyAsync(marketData -> {
+                    log.debug("开始计算大盘技术指标");
+                    return pythonScriptService.calculateTechnicalIndicators(marketData);
+                }, executorService);
+
+            CompletableFuture<Map<String, Object>> boardTechnicalIndicatorsFuture = 
+                boardDataFuture.thenApplyAsync(boardData -> {
+                    log.debug("开始计算板块技术指标");
+                    return pythonScriptService.calculateTechnicalIndicators(boardData);
+                }, executorService);
+
+            // 准备AI分析的流式处理 - 当核心数据就绪时就开始分析
+            CompletableFuture<AIAnalysisResult> aiAnalysisFuture = CompletableFuture.allOf(
+                stockDataFuture, technicalIndicatorsFuture, marketTechnicalIndicatorsFuture, 
+                boardTechnicalIndicatorsFuture, newsDataFuture, moneyFlowDataFuture, 
+                marginTradingDataFuture, intradayAnalysisFuture, peerComparisonFuture, 
+                financialAnalysisFuture, coreTagsFuture
+            ).thenApplyAsync(ignored -> {
+                try {
+                    log.info("核心数据就绪，开始AI分析");
+                    
+                    // 获取核心分析所需的数据
+                    List<Map<String, Object>> stockData = stockDataFuture.get();
+                    Map<String, Object> technicalIndicators = technicalIndicatorsFuture.get();
+                    Map<String, Object> marketTechnicalIndicators = marketTechnicalIndicatorsFuture.get();
+                    Map<String, Object> boardTechnicalIndicators = boardTechnicalIndicatorsFuture.get();
+                    List<Map<String, Object>> newsData = newsDataFuture.get();
+                    List<Map<String, Object>> moneyFlowData = moneyFlowDataFuture.get();
+                    List<Map<String, Object>> marginTradingData = marginTradingDataFuture.get();
+                    Map<String, Object> intradayAnalysis = intradayAnalysisFuture.get();
+                    Map<String, Object> peerComparison = peerComparisonFuture.get();
+                    Map<String, Object> financialAnalysis = financialAnalysisFuture.get();
+                    Map<String, Object> coreTags = coreTagsFuture.get();
+                    
+                    // 将核心概念和行业标签信息合并到财务分析数据中
+                    if (coreTags != null && !coreTags.isEmpty()) {
+                        if (financialAnalysis == null) {
+                            financialAnalysis = new HashMap<>();
+                        }
+                        financialAnalysis.putAll(coreTags);
+                    }
+
+                    // 进行AI分析
+                    return aiAnalysisService.analyzeStock(
+                            stockCode, stockData, marketTechnicalIndicators, boardTechnicalIndicators,
+                            technicalIndicators, newsData, moneyFlowData, marginTradingData, 
+                            intradayAnalysis, peerComparison, financialAnalysis);
+                } catch (Exception e) {
+                    log.error("AI分析过程中发生错误: {}", e.getMessage(), e);
+                    throw new RuntimeException("AI分析失败", e);
+                }
+            }, executorService);
+
+            // 等待所有数据获取完成（用于响应组装）
+            CompletableFuture<Void> allDataFuture2 = CompletableFuture.allOf(
+                stockDataFuture, marketDataFuture, boardDataFuture, newsDataFuture,
+                moneyFlowDataFuture, marginTradingDataFuture, intradayAnalysisFuture,
+                peerComparisonFuture, financialAnalysisFuture, coreTagsFuture,
+                technicalIndicatorsFuture, marketTechnicalIndicatorsFuture, boardTechnicalIndicatorsFuture
+            );
+
+            // 等待所有任务完成（包括AI分析）
+            CompletableFuture.allOf(allDataFuture2, aiAnalysisFuture).get();
+            
+            long dataFetchEndTime = System.currentTimeMillis();
+            long dataFetchDuration = dataFetchEndTime - dataFetchStartTime;
+            recordPerformanceMetric("data_fetch_duration_ms", dataFetchDuration);
+            log.info("数据获取和处理完成，耗时: {}ms", dataFetchDuration);
+
+            // 获取所有结果
             List<Map<String, Object>> stockData = stockDataFuture.get();
             List<Map<String, Object>> marketData = marketDataFuture.get();
             List<Map<String, Object>> boardData = boardDataFuture.get();
@@ -71,20 +211,18 @@ public class StockAnalysisService {
             List<Map<String, Object>> moneyFlowData = moneyFlowDataFuture.get();
             List<Map<String, Object>> marginTradingData = marginTradingDataFuture.get();
             Map<String, Object> intradayAnalysis = intradayAnalysisFuture.get();
+            Map<String, Object> peerComparison = peerComparisonFuture.get();
+            Map<String, Object> financialAnalysis = financialAnalysisFuture.get();
+            // coreTags 已在 AI 分析中使用，无需重复获取
 
-            log.info("基础数据获取完成，开始计算技术指标");
+            // 获取技术指标计算结果
+            Map<String, Object> technicalIndicators = technicalIndicatorsFuture.get();
+            // marketTechnicalIndicators 和 boardTechnicalIndicators 已在 AI 分析中使用，无需重复获取
+            
+            // 获取AI分析结果
+            AIAnalysisResult aiAnalysisResult = aiAnalysisFuture.get();
 
-            // 计算技术指标
-            Map<String, Object> technicalIndicators = pythonScriptService.calculateTechnicalIndicators(stockData);
-            Map<String, Object> marketTechnicalIndicators = pythonScriptService.calculateTechnicalIndicators(marketData);
-            Map<String, Object> boardTechnicalIndicators = pythonScriptService.calculateTechnicalIndicators(boardData);
-
-            log.info("技术指标计算完成，开始AI分析");
-
-            // 进行AI分析（包含分时数据分析）
-            AIAnalysisResult aiAnalysisResult = aiAnalysisService.analyzeStock(
-                    stockCode, stockData, marketTechnicalIndicators, boardTechnicalIndicators,
-                    technicalIndicators, newsData, moneyFlowData, marginTradingData, intradayAnalysis);
+            log.info("所有数据获取、技术指标计算和AI分析完成");
 
             // 组装响应数据
             response.setStockData(convertToStockDataList(stockData));
@@ -94,6 +232,8 @@ public class StockAnalysisService {
             response.setNewsData(convertToNewsDataList(newsData));
             response.setMoneyFlowData(convertToMoneyFlowData(moneyFlowData));
             response.setMarginTradingData(convertToMarginTradingData(marginTradingData));
+            response.setPeerComparison(peerComparison);
+            response.setFinancialAnalysis(financialAnalysis);
             response.setAiAnalysisResult(aiAnalysisResult);
 
             // 从分时分析的结果中带回 stockBasic（Python 已整合），并设置 stockName
@@ -106,15 +246,135 @@ public class StockAnalysisService {
                 }
             }
 
-            log.info("股票分析完成: {}", stockCode);
+            long totalDuration = System.currentTimeMillis() - startTime;
+            recordPerformanceMetric("total_analysis_duration_ms", totalDuration);
+            recordPerformanceMetric("cache_hit_count", getCacheHitCount());
+            
+            log.info("股票分析完成: {}，总耗时: {}ms", stockCode, totalDuration);
+            logPerformanceMetrics(stockCode);
 
         } catch (Exception e) {
-            log.error("股票分析失败: {}", e.getMessage(), e);
+            long totalDuration = System.currentTimeMillis() - startTime;
+            recordPerformanceMetric("failed_analysis_duration_ms", totalDuration);
+            log.error("股票分析失败: {}，耗时: {}ms，错误: {}", stockCode, totalDuration, e.getMessage(), e);
             response.setSuccess(false);
             response.setMessage("分析失败: " + e.getMessage());
         }
 
         return response;
+    }
+    
+    /**
+     * 获取缓存的股票数据，如果缓存过期或不存在则重新获取
+     */
+    private List<Map<String, Object>> getCachedStockData(String stockCode) {
+        String cacheKey = "stock_" + stockCode;
+        CacheEntry<List<Map<String, Object>>> cached = stockDataCache.get(cacheKey);
+        
+        if (cached != null && !cached.isExpired(STOCK_DATA_CACHE_DURATION)) {
+            log.debug("使用缓存的股票数据: {}", stockCode);
+            recordCacheHit();
+            return cached.getData();
+        }
+        
+        log.debug("获取新的股票数据: {}", stockCode);
+        List<Map<String, Object>> data = pythonScriptService.getStockKlineData(stockCode);
+        stockDataCache.put(cacheKey, new CacheEntry<>(data));
+        return data;
+    }
+    
+    /**
+     * 获取缓存的技术指标，如果缓存过期或不存在则重新计算
+     */
+    private Map<String, Object> getCachedTechnicalIndicators(String stockCode, List<Map<String, Object>> stockData) {
+        String cacheKey = "tech_" + stockCode;
+        CacheEntry<Map<String, Object>> cached = technicalIndicatorsCache.get(cacheKey);
+        
+        if (cached != null && !cached.isExpired(TECHNICAL_INDICATORS_CACHE_DURATION)) {
+            log.debug("使用缓存的技术指标: {}", stockCode);
+            recordCacheHit();
+            return cached.getData();
+        }
+        
+        log.debug("计算新的技术指标: {}", stockCode);
+        Map<String, Object> indicators = pythonScriptService.calculateTechnicalIndicators(stockData);
+        technicalIndicatorsCache.put(cacheKey, new CacheEntry<>(indicators));
+        return indicators;
+    }
+    
+    /**
+     * 获取缓存的新闻数据，如果缓存过期或不存在则重新获取
+     */
+    private List<Map<String, Object>> getCachedNewsData(String stockCode) {
+        String cacheKey = "news_" + stockCode;
+        CacheEntry<List<Map<String, Object>>> cached = newsDataCache.get(cacheKey);
+        
+        if (cached != null && !cached.isExpired(NEWS_DATA_CACHE_DURATION)) {
+            log.debug("使用缓存的新闻数据: {}", stockCode);
+            recordCacheHit();
+            return cached.getData();
+        }
+        
+        log.debug("获取新的新闻数据: {}", stockCode);
+        List<Map<String, Object>> data = pythonScriptService.getNewsData(stockCode);
+        newsDataCache.put(cacheKey, new CacheEntry<>(data));
+        return data;
+    }
+    
+    /**
+     * 清理过期的缓存条目
+     */
+    private void cleanExpiredCache() {
+        stockDataCache.entrySet().removeIf(entry -> 
+            entry.getValue().isExpired(STOCK_DATA_CACHE_DURATION));
+        technicalIndicatorsCache.entrySet().removeIf(entry -> 
+            entry.getValue().isExpired(TECHNICAL_INDICATORS_CACHE_DURATION));
+        newsDataCache.entrySet().removeIf(entry -> 
+            entry.getValue().isExpired(NEWS_DATA_CACHE_DURATION));
+    }
+    
+    /**
+     * 记录性能指标
+     */
+    private void recordPerformanceMetric(String metricName, long value) {
+        performanceMetrics.put(metricName, value);
+    }
+    
+    /**
+     * 获取缓存命中次数
+     */
+    private long getCacheHitCount() {
+        return performanceMetrics.getOrDefault("cache_hit_count", 0L);
+    }
+    
+    /**
+     * 记录缓存命中
+     */
+    private void recordCacheHit() {
+        performanceMetrics.merge("cache_hit_count", 1L, Long::sum);
+    }
+    
+    /**
+     * 输出性能指标日志
+     */
+    private void logPerformanceMetrics(String stockCode) {
+        StringBuilder metricsLog = new StringBuilder();
+        metricsLog.append("股票 ").append(stockCode).append(" 性能指标: ");
+        
+        performanceMetrics.forEach((key, value) -> {
+            metricsLog.append(key).append("=").append(value).append("ms, ");
+        });
+        
+        // 计算缓存命中率
+        long cacheHits = performanceMetrics.getOrDefault("cache_hit_count", 0L);
+        long totalCacheRequests = cacheHits + 3; // 假设有3个主要缓存请求
+        double hitRate = totalCacheRequests > 0 ? (double) cacheHits / totalCacheRequests * 100 : 0;
+        metricsLog.append("缓存命中率=").append(String.format("%.1f%%", hitRate));
+        
+        log.info(metricsLog.toString());
+        
+        // 清理当前分析的性能指标
+        performanceMetrics.clear();
     }
 
     /**
@@ -237,7 +497,20 @@ public class StockAnalysisService {
         String publishDateStr = (String) rawData.get("发布日期");
         if (publishDateStr != null && !publishDateStr.isEmpty()) {
             try {
-                newsData.setPublishTime(LocalDateTime.parse(publishDateStr, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+                LocalDateTime publishTime;
+                if (publishDateStr.length() == 10) {
+                    // 格式: yyyy-MM-dd
+                    LocalDate date = LocalDate.parse(publishDateStr, DateTimeFormatter.ofPattern("yyyy-MM-dd"));
+                    publishTime = date.atStartOfDay(); // 设置为当天的00:00:00
+                } else if (publishDateStr.length() == 19) {
+                    // 格式: yyyy-MM-dd HH:mm:ss
+                    publishTime = LocalDateTime.parse(publishDateStr, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+                } else {
+                    // 其他格式，尝试解析为日期
+                    LocalDate date = LocalDate.parse(publishDateStr, DateTimeFormatter.ofPattern("yyyy-MM-dd"));
+                    publishTime = date.atStartOfDay();
+                }
+                newsData.setPublishTime(publishTime);
             } catch (Exception e) {
                 log.warn("无法解析发布日期: {}", publishDateStr);
             }

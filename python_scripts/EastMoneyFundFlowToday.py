@@ -52,6 +52,9 @@ def get_recent_fund_flow(stock_code, max_retries=3):
             # 解析JSON数据
             data_str = response.text
 
+            # 调试：打印原始响应
+            logger.debug(f"API原始响应: {data_str[:500]}...")
+
             # 处理JSONP格式（如果有回调函数）
             if data_str.startswith('jQuery'):
                 start_index = data_str.find('(') + 1
@@ -60,9 +63,13 @@ def get_recent_fund_flow(stock_code, max_retries=3):
             else:
                 json_data = json.loads(data_str)
 
+            # 调试：打印解析后的JSON结构
+            logger.debug(f"解析后的JSON结构: {json.dumps(json_data, ensure_ascii=False, indent=2)[:1000]}...")
+
             # 检查并提取数据
             if "data" in json_data and "klines" in json_data["data"]:
                 klines = json_data["data"]["klines"]
+                logger.debug(f"找到klines数据，长度: {len(klines) if klines else 0}")
                 result = []
 
                 for line in klines:

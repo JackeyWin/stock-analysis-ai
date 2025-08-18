@@ -92,21 +92,34 @@ class IntradayAnalyzer:
                             fund_data = json.loads(json_content)
                         else:
                             print(f"资金流向数据格式错误: {stdout_clean[:200]}...", file=sys.stderr)
-                            return False
+                            # 不返回False，而是设置空数据继续执行
+                            self.fund_flow_data = []
+                            print(f"资金流向数据获取失败，使用空数据继续分析", file=sys.stderr)
                     
                     if isinstance(fund_data, list):
                         self.fund_flow_data = fund_data
                         print(f"成功加载资金流向数据: {len(self.fund_flow_data)}条", file=sys.stderr)
+                    elif isinstance(fund_data, dict) and "error" in fund_data:
+                        print(f"资金流向数据获取失败: {fund_data['error']}", file=sys.stderr)
+                        # 设置空数据继续执行
+                        self.fund_flow_data = []
+                        print(f"资金流向数据获取失败，使用空数据继续分析", file=sys.stderr)
                     else:
                         print(f"资金流向数据格式错误: {fund_data}", file=sys.stderr)
-                        return False
+                        # 设置空数据继续执行
+                        self.fund_flow_data = []
+                        print(f"资金流向数据格式错误，使用空数据继续分析", file=sys.stderr)
                 except json.JSONDecodeError as e:
                     print(f"资金流向数据JSON解析失败: {str(e)}", file=sys.stderr)
                     print(f"原始输出: {fund_result.stdout[:200]}...", file=sys.stderr)
-                    return False
+                    # 设置空数据继续执行
+                    self.fund_flow_data = []
+                    print(f"资金流向数据JSON解析失败，使用空数据继续分析", file=sys.stderr)
             else:
                 print(f"获取资金流向数据失败: {fund_result.stderr}", file=sys.stderr)
-                return False
+                # 设置空数据继续执行
+                self.fund_flow_data = []
+                print(f"资金流向数据获取失败，使用空数据继续分析", file=sys.stderr)
             
             # 获取当前资金流向数据（新增）
             current_fund_result = subprocess.run([
@@ -172,12 +185,15 @@ class IntradayAnalyzer:
 
     def calculate_key_metrics(self) -> Dict[str, Any]:
         """计算关键指标"""
-        if not self.trends_data or not self.fund_flow_data:
+        if not self.trends_data:
             return {}
         
         # 价格相关指标
         prices = [item['p'] for item in self.trends_data]
         volumes = [item['v'] for item in self.trends_data]
+        
+        if not prices:
+            return {}
         
         current_price = prices[-1]
         open_price = prices[0]
@@ -192,12 +208,13 @@ class IntradayAnalyzer:
         avg_volume = total_volume / len(volumes)
         volume_ratio = total_volume / (avg_volume * len(volumes)) if avg_volume > 0 else 1.0
         
-        # 资金流向指标（简化处理，避免计算错误）
-        latest_item = self.fund_flow_data[-1] if self.fund_flow_data else {}
-        
-        # 由于资金流向数据都是净流入，简化计算
-        main_net_flow = latest_item.get('zl', 0)  # 主力净流入
-        total_net_flow = latest_item.get('zl', 0)  # 总净流入
+        # 资金流向指标（如果有数据的话）
+        main_net_flow = 0
+        total_net_flow = 0
+        if self.fund_flow_data and len(self.fund_flow_data) > 0:
+            latest_item = self.fund_flow_data[-1]
+            main_net_flow = latest_item.get('zl', 0)  # 主力净流入
+            total_net_flow = latest_item.get('zl', 0)  # 总净流入
         
         return {
             "current_price": f"{current_price:.2f}",

@@ -47,6 +47,56 @@ app.get('/health', (req, res) => {
     });
 });
 
+// 获取用户分析任务列表（根据设备指纹）
+app.get('/api/mobile/analysis/tasks', async (req, res) => {
+    try {
+        const response = await axios.get(
+            `${STOCK_ANALYSIS_SERVICE_URL}/api/stocks/analysis/tasks`,
+            { 
+                params: req.query,
+                timeout: 30000
+            }
+        );
+        
+        res.json({
+            ...response.data,
+            timestamp: new Date().toISOString()
+        });
+    } catch (error) {
+        console.error('获取用户分析任务代理错误:', error.message);
+        res.status((error.response && error.response.status) || 500).json({
+            success: false,
+            message: (error.response && error.response.data && error.response.data.message) || '获取分析任务失败',
+            code: 'GET_TASKS_ERROR'
+        });
+    }
+});
+
+// 获取所有分析任务（包括他人的）
+app.get('/api/mobile/analysis/tasks/all', async (req, res) => {
+    try {
+        const response = await axios.get(
+            `${STOCK_ANALYSIS_SERVICE_URL}/api/stocks/analysis/tasks/all`,
+            { 
+                params: req.query,
+                timeout: 30000
+            }
+        );
+        
+        res.json({
+            ...response.data,
+            timestamp: new Date().toISOString()
+        });
+    } catch (error) {
+        console.error('获取所有分析任务代理错误:', error.message);
+        res.status((error.response && error.response.status) || 500).json({
+            success: false,
+            message: (error.response && error.response.data && error.response.data.message) || '获取所有分析任务失败',
+            code: 'GET_ALL_TASKS_ERROR'
+        });
+    }
+});
+
 // 股票分析相关API代理
 app.post('/api/mobile/stock/analyze', async (req, res) => {
     try {
@@ -182,6 +232,7 @@ const analysisJobs = new Map();
 app.post('/api/mobile/stock/analyze-async', async (req, res) => {
     try {
         const { stockCode } = req.body;
+        const machineId = req.headers['x-device-fingerprint'] || 'default';
         const jobId = `${stockCode}_${Date.now()}`;
         
         // 创建分析任务
@@ -198,12 +249,12 @@ app.post('/api/mobile/stock/analyze-async', async (req, res) => {
             taskId: jobId,  // 前端期望的字段名
             jobId,          // 保持兼容性
             message: '分析任务已启动',
-            estimatedTime: '1-2分钟',
+            estimatedTime: '2-5分钟',
             stockName: '分析中...' // 将在分析完成后更新
         });
         
         // 异步执行分析
-        performAsyncAnalysis(jobId, stockCode);
+        performAsyncAnalysis(jobId, stockCode, machineId);
         
     } catch (error) {
         console.error('启动异步分析失败:', error.message);
@@ -263,7 +314,7 @@ app.get('/api/mobile/stock/analyze-status/:taskId', (req, res) => {
 });
 
 // 异步执行分析的函数
-async function performAsyncAnalysis(jobId, stockCode) {
+async function performAsyncAnalysis(jobId, stockCode, machineId) {
     let progressInterval;  // 声明在函数顶部
     
     try {
@@ -304,7 +355,7 @@ async function performAsyncAnalysis(jobId, stockCode) {
         // 执行实际分析
         const response = await axios.post(
             `${STOCK_ANALYSIS_SERVICE_URL}/api/stocks/analyze`,
-            { stockCode },
+            { stockCode, machineId },
             {
                 headers: { 'Content-Type': 'application/json' },
                 timeout: 600000  // 10分钟超时

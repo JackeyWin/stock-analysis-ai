@@ -6,6 +6,7 @@ import com.stockanalysis.model.StockAnalysisResponse;
 import com.stockanalysis.model.StockRecommendationDetail;
 import com.stockanalysis.entity.DailyRecommendationEntity;
 import com.stockanalysis.entity.StockRecommendationDetailEntity;
+import com.stockanalysis.entity.StockAnalysisResultEntity;
 import com.stockanalysis.service.StockAnalysisService;
 import com.stockanalysis.service.SimplifiedStockPickerService;
 import lombok.extern.slf4j.Slf4j;
@@ -81,11 +82,13 @@ public class StockAnalysisController {
      * 简单的股票分析接口（GET方式）
      */
     @GetMapping("/analyze/{stockCode}")
-    public ResponseEntity<StockAnalysisResponse> analyzeStockSimple(@PathVariable String stockCode) {
-        log.info("收到简单股票分析请求: {}", stockCode);
+    public ResponseEntity<StockAnalysisResponse> analyzeStockSimple(@PathVariable String stockCode,
+                                                                    @RequestParam(defaultValue = "default") String machineId) {
+        log.info("收到简单股票分析请求: {}, machineId: {}", stockCode, machineId);
         
         StockAnalysisRequest request = new StockAnalysisRequest();
         request.setStockCode(stockCode);
+        request.setMachineId(machineId);
         
         return analyzeStock(request);
     }
@@ -234,6 +237,23 @@ public class StockAnalysisController {
     }
     
     /**
+     * 查询按机器号存储的分析结果
+     */
+    @GetMapping("/analysis-results/{machineId}")
+    public ResponseEntity<List<StockAnalysisResultEntity>> getAnalysisResultsByMachineId(@PathVariable String machineId) {
+        log.info("收到查询分析结果请求: machineId: {}", machineId);
+        
+        try {
+            List<StockAnalysisResultEntity> results = stockAnalysisService.getStockAnalysisResultRepository().findByMachineId(machineId);
+            log.info("成功查询到 {} 条分析结果", results.size());
+            return ResponseEntity.ok(results);
+        } catch (Exception e) {
+            log.error("查询分析结果异常: {}", e.getMessage(), e);
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+    
+    /**
      * 简化版选股接口
      */
     @GetMapping("/simplified-pick")
@@ -274,6 +294,75 @@ public class StockAnalysisController {
             );
             
             return ResponseEntity.internalServerError().body(errorResponse);
+        }
+    }
+
+    /**
+     * 获取用户分析任务列表（根据设备指纹）
+     */
+    @GetMapping("/analysis/tasks")
+    public ResponseEntity<List<StockAnalysisResultEntity>> getUserAnalysisTasks(@RequestParam(name = "machineId", required = false) String machineId) {
+        log.info("收到获取用户分析任务请求: machineId: {}", machineId);
+        
+        try {
+            // 如果没有提供machineId，返回空列表
+            if (machineId == null || machineId.trim().isEmpty()) {
+                return ResponseEntity.ok(List.of());
+            }
+            
+            List<StockAnalysisResultEntity> results = stockAnalysisService.getStockAnalysisResultRepository().findByMachineId(machineId);
+            log.info("成功查询到 {} 条用户分析任务", results.size());
+            return ResponseEntity.ok(results);
+        } catch (Exception e) {
+            log.error("获取用户分析任务异常: {}", e.getMessage(), e);
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    /**
+     * 获取所有分析任务（包括他人的）
+     */
+    @GetMapping("/analysis/tasks/all")
+    public ResponseEntity<Map<String, Object>> getAllAnalysisTasks(
+            @RequestParam(name = "page", defaultValue = "0") int page,
+            @RequestParam(name = "size", defaultValue = "10") int size) {
+        log.info("收到获取所有分析任务请求: page={}, size={}", page, size);
+        
+        try {
+            // 获取所有分析结果
+            List<StockAnalysisResultEntity> allResults = stockAnalysisService.getStockAnalysisResultRepository().findAll();
+            
+            // 实现简单的分页逻辑
+            int total = allResults.size();
+            int start = page * size;
+            int end = Math.min(start + size, total);
+            
+            if (start >= total) {
+                return ResponseEntity.ok(Map.of(
+                    "content", List.of(),
+                    "totalElements", total,
+                    "totalPages", (int) Math.ceil((double) total / size),
+                    "size", size,
+                    "number", page,
+                    "first", page == 0,
+                    "last", end >= total
+                ));
+            }
+            
+            List<StockAnalysisResultEntity> pageResults = allResults.subList(start, end);
+            
+            return ResponseEntity.ok(Map.of(
+                "content", pageResults,
+                "totalElements", total,
+                "totalPages", (int) Math.ceil((double) total / size),
+                "size", size,
+                "number", page,
+                "first", page == 0,
+                "last", end >= total
+            ));
+        } catch (Exception e) {
+            log.error("获取所有分析任务异常: {}", e.getMessage(), e);
+            return ResponseEntity.internalServerError().build();
         }
     }
     

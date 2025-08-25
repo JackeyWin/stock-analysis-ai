@@ -1,5 +1,6 @@
 import axios from 'axios';
 import Constants from 'expo-constants';
+import DeviceService from './DeviceService';
 
 // Web端使用同源，原生端使用固定域名，避免iOS上http/https跨源问题
 const isWeb = typeof window !== 'undefined' && typeof document !== 'undefined';
@@ -27,9 +28,18 @@ class ApiService {
 
     // 请求拦截器
     this.client.interceptors.request.use(
-      (config) => {
+      async (config) => {
         console.log(`🚀 API请求: ${config.method?.toUpperCase()} ${config.url}`);
-        return config;
+        
+        // 添加设备指纹头信息
+        try {
+          const enhancedConfig = await DeviceService.withDeviceHeaders(config);
+          console.log('📋 请求头信息:', enhancedConfig.headers);
+          return enhancedConfig;
+        } catch (error) {
+          console.warn('⚠️ 添加设备指纹头信息失败，继续原始请求:', error);
+          return config;
+        }
       },
       (error) => {
         console.error('❌ API请求错误:', error);
@@ -81,8 +91,12 @@ class ApiService {
   // 启动异步分析任务（不等待完成）
   async startAnalysisTask(stockCode, options = {}) {
     try {
+      // 获取设备指纹作为machineId
+      const machineId = await DeviceService.getFingerprint();
+      
       const response = await this.client.post('/api/mobile/stock/analyze-async', {
         stockCode,
+        machineId,
         ...options,
       });
       
@@ -104,6 +118,70 @@ class ApiService {
         console.log('🔄 异步接口不存在，使用同步接口');
         return await this.analyzeStockSync(stockCode, options);
       }
+      throw error;
+    }
+  }
+
+  // 同步股票分析（备用）
+  async analyzeStockSync(stockCode, options = {}) {
+    try {
+      // 获取设备指纹作为machineId
+      const machineId = await DeviceService.getFingerprint();
+      
+      const response = await this.client.post('/api/mobile/stock/analyze', {
+        stockCode,
+        machineId,
+        ...options,
+      });
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  // 简单股票分析 (GET)
+  async analyzeStockSimple(stockCode) {
+    try {
+      // 获取设备指纹作为machineId
+      const machineId = await DeviceService.getFingerprint();
+      
+      const response = await this.client.get(`/api/mobile/stock/analyze/${stockCode}`, {
+        params: { machineId }
+      });
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  // 快速分析
+  async quickAnalyze(stockCode) {
+    try {
+      // 获取设备指纹作为machineId
+      const machineId = await DeviceService.getFingerprint();
+      
+      const response = await this.client.post('/api/mobile/stock/quick-analyze', {
+        stockCode,
+        machineId,
+      });
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  // 风险评估
+  async assessRisk(stockCode) {
+    try {
+      // 获取设备指纹作为machineId
+      const machineId = await DeviceService.getFingerprint();
+      
+      const response = await this.client.post('/api/mobile/stock/risk-assessment', {
+        stockCode,
+        machineId,
+      });
+      return response.data;
+    } catch (error) {
       throw error;
     }
   }
@@ -144,19 +222,6 @@ class ApiService {
     try {
       const taskInfo = await this.startAnalysisTask(stockCode, options);
       return await this.pollAnalysisResult(taskInfo.taskId, 60, 5000, onProgress);
-    } catch (error) {
-      throw error;
-    }
-  }
-
-  // 同步股票分析（备用）
-  async analyzeStockSync(stockCode, options = {}) {
-    try {
-      const response = await this.client.post('/api/mobile/stock/analyze', {
-        stockCode,
-        ...options,
-      });
-      return response.data;
     } catch (error) {
       throw error;
     }
@@ -369,7 +434,53 @@ class ApiService {
       throw error;
     }
   }
+
+  // 获取用户的分析任务列表（根据设备指纹）
+  async getUserAnalysisTasks() {
+    try {
+      // 获取设备指纹作为machineId
+      const machineId = await DeviceService.getFingerprint();
+      const response = await this.client.get('/api/mobile/analysis/tasks', {
+        params: { machineId }
+      });
+      return response.data;
+    } catch (error) {
+      console.error('获取用户分析任务失败:', error);
+      throw error;
+    }
+  }
+
+  // 获取所有分析任务（包括他人的）
+  async getAllAnalysisTasks(page = 0, size = 10) {
+    try {
+      const response = await this.client.get('/api/mobile/analysis/tasks/all', {
+        params: { page, size }
+      });
+      return response.data;
+    } catch (error) {
+      console.error('获取所有分析任务失败:', error);
+      throw error;
+    }
+  }
 }
 
 // 导出单例实例
 export default new ApiService();
+
+// 删除未定义的axiosInstance拦截器代码
+// axiosInstance.interceptors.request.use(
+//   async (config) => {
+//     const withDevice = await DeviceService.withDeviceHeaders(config);
+//     return {
+//       ...withDevice,
+//       params: {
+//         ...withDevice.params,
+//         machineId: DeviceService.deviceFingerprint
+//       }
+//     };
+//   },
+//   (error) => {
+//     console.error('❌ API请求错误:', error);
+//     return Promise.reject(error);
+//   }
+// );

@@ -16,4 +16,6 @@ public class StockAnalysisRequest {
     private String stockCode;
     
     private Integer days = 250;  // 默认获取250天数据
+    
+    private String machineId = "default";  // 机器标识，默认为default
 }

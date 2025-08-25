@@ -10,12 +10,46 @@ import {
   ActivityIndicator,
   Platform,
   Pressable,
+  Button,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import ApiService from '../services/ApiService';
 
-const AnalysisTaskList = React.forwardRef(({ stockCode, onTaskComplete, onViewResult }, ref) => {
+// 格式化时间显示
+const formatTime = (timestamp) => {
+  if (!timestamp) return '未知时间';
+  
+  try {
+    const date = new Date(timestamp);
+    if (isNaN(date.getTime())) return '无效时间';
+    
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMins / 60);
+    const diffDays = Math.floor(diffHours / 24);
+    
+    if (diffMins < 1) return '刚刚';
+    if (diffMins < 60) return `${diffMins}分钟前`;
+    if (diffHours < 24) return `${diffHours}小时前`;
+    if (diffDays < 7) return `${diffDays}天前`;
+    
+    // 超过一周显示具体日期
+    return date.toLocaleDateString('zh-CN', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  } catch (error) {
+    console.error('格式化时间出错:', error, timestamp);
+    return '时间格式错误';
+  }
+};
+
+const AnalysisTaskList = React.forwardRef(({ stockCode, onTaskComplete, onViewResult, showAllAnalyses, allAnalyses, loadingAllAnalyses, onLoadMoreAnalyses, hasMoreAnalyses }, ref) => {
   const [tasks, setTasks] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -67,15 +101,16 @@ const AnalysisTaskList = React.forwardRef(({ stockCode, onTaskComplete, onViewRe
     return [];
   };
 
-  // 从后端获取任务状态
+  // 从后端获取任务状态（根据设备指纹）
   const fetchTasksFromBackend = async () => {
     try {
       console.log('🔄 尝试从后端获取任务状态...');
-      // 这里可以调用后端API获取所有任务状态
-      // 暂时返回空数组，后续可以实现
-      return [];
+      const tasks = await apiService.current.getUserAnalysisTasks();
+      console.log('🌐 从后端获取到用户任务:', tasks.length, '个');
+      return tasks;
     } catch (error) {
       console.error('从后端获取任务失败:', error);
+      // 失败时返回空数组，保持应用可用性
       return [];
     }
   };
@@ -118,15 +153,15 @@ const AnalysisTaskList = React.forwardRef(({ stockCode, onTaskComplete, onViewRe
         })));
       }
 
-      // 根据股票代码去重，保留最新的一条（假设列表是按新\u2192旧排序）
-      const seenCodes = new Set();
-      const dedupedTasks = [];
+      // 根据股票代码去重，保留最新的一条任务
+      const taskMap = new Map();
       for (const t of finalTasks) {
-        if (!seenCodes.has(t.stockCode)) {
-          seenCodes.add(t.stockCode);
-          dedupedTasks.push(t);
+        const existing = taskMap.get(t.stockCode);
+        if (!existing || new Date(t.createdAt || t.startTime || t.timestamp) > new Date(existing.createdAt || existing.startTime || existing.timestamp)) {
+          taskMap.set(t.stockCode, t);
         }
       }
+      const dedupedTasks = Array.from(taskMap.values());
 
       console.log('📊 最终任务列表(去重后):', dedupedTasks.length, '个任务');
       setTasks(dedupedTasks);
@@ -208,7 +243,11 @@ const AnalysisTaskList = React.forwardRef(({ stockCode, onTaskComplete, onViewRe
       }
 
       setTasks(prevTasks => {
-        const filtered = prevTasks.filter(t => t.stockCode !== stockCode);
+        // 只移除同股票代码的进行中任务，保留已完成和失败的任务
+        const filtered = prevTasks.filter(t => 
+          t.stockCode !== stockCode || 
+          (t.status !== 'pending' && t.status !== 'processing')
+        );
         const updatedTasks = [tempTask, ...filtered];
         saveTasksToStorage(updatedTasks);
         return updatedTasks;
@@ -391,6 +430,20 @@ const AnalysisTaskList = React.forwardRef(({ stockCode, onTaskComplete, onViewRe
           if (status.status === 'completed' && onTaskComplete) {
             onTaskComplete(status);
           }
+
+          // 任务完成后更新任务状态（保持任务在列表中）
+          if (status.status === 'completed') {
+            setTasks(prev => {
+              const updatedTasks = prev.map(task => 
+                task.taskId === taskId 
+                  ? { ...task, ...status, progress: 100, endTime: new Date() }
+                  : task
+              );
+              console.log('✅ 任务完成，更新状态，剩余任务数:', updatedTasks.length);
+              saveTasksToStorage(updatedTasks);
+              return updatedTasks;
+            });
+          }
         } else {
           // 继续轮询，使用该股票的当前延迟
           const nextPoll = setTimeout(poll, stockState.currentDelay);
@@ -409,7 +462,7 @@ const AnalysisTaskList = React.forwardRef(({ stockCode, onTaskComplete, onViewRe
           stockState.currentDelay = Math.min(stockState.currentDelay * 1.5, 15000); // 最大15秒
         }
         
-        // 如果连续错误太多，停止轮询
+        // 如果连续错误太多，停止轮询并标记任务为失败
         if (stockState.consecutiveErrors >= 10) {
           console.error(`❌ 股票 ${stockCode} 连续错误过多，停止轮询`);
           clearTimeout(pollingRefs.current.get(taskId));
@@ -420,6 +473,18 @@ const AnalysisTaskList = React.forwardRef(({ stockCode, onTaskComplete, onViewRe
           if (stockState.activeTasks.size === 0) {
             stockPollingStates.current.delete(stockCode);
           }
+          
+          // 更新任务状态为失败，保持任务在列表中
+          setTasks(prev => {
+            const updatedTasks = prev.map(task => 
+              task.taskId === taskId 
+                ? { ...task, status: 'failed', endTime: new Date(), message: '分析失败：连续错误过多' }
+                : task
+            );
+            console.log('❌ 任务失败，更新状态，剩余任务数:', updatedTasks.length);
+            saveTasksToStorage(updatedTasks);
+            return updatedTasks;
+          });
           return;
         }
         
@@ -560,6 +625,12 @@ const AnalysisTaskList = React.forwardRef(({ stockCode, onTaskComplete, onViewRe
           </View>
         </View>
 
+        <Text style={styles.messageText}>
+          分析时间: {formatTime(item.analysis_time || item.timestamp)}
+        </Text>
+
+
+
         <View style={styles.progressContainer}>
           <View style={styles.progressBar}>
             <View 
@@ -611,10 +682,216 @@ const AnalysisTaskList = React.forwardRef(({ stockCode, onTaskComplete, onViewRe
                 style={styles.deleteButton}
                 onPress={() => {
                   console.log('🖥️ Web平台删除按钮被点击，任务ID:', item.taskId);
-                  if (window.confirm('确定要删除这个分析任务吗？')) {
-                    console.log('✅ Web平台确认删除任务:', item.taskId);
-                    removeTask(item.taskId);
-                  }
+                  Alert.alert(
+                    '确认删除',
+                    '确定要删除这个分析任务吗？',
+                    [
+                      { text: '取消', style: 'cancel' },
+                      { text: '删除', style: 'destructive', onPress: () => {
+                        console.log('✅ Web平台确认删除任务:', item.taskId);
+                        removeTask(item.taskId);
+                      }}
+                    ]
+                  );
+                }}
+              >
+                <Ionicons name="trash-outline" size={16} color="#FF3B30" />
+              </Pressable>
+            ) : (
+              <TouchableOpacity 
+                style={styles.deleteButton}
+                onPress={() => {
+                  console.log('🗑️ 删除按钮被点击，任务ID:', item.taskId);
+                  Alert.alert(
+                    '确认删除',
+                    '确定要删除这个分析任务吗？',
+                    [
+                      { text: '取消', style: 'cancel' },
+                      { text: '删除', style: 'destructive', onPress: () => {
+                        console.log('✅ 确认删除任务:', item.taskId);
+                        removeTask(item.taskId);
+                      }}
+                    ]
+                  );
+                }}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="trash-outline" size={16} color="#FF3B30" />
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      </View>
+    );
+  };
+
+  // 获取要显示的任务列表
+  const getDisplayTasks = () => {
+    if (showAllAnalyses) {
+      return allAnalyses;
+    }
+    return tasks;
+  };
+
+  // 渲染所有分析数据的项目
+  const renderAllAnalysisItem = ({ item }) => {
+    const getStatusColor = (status) => {
+      switch (status) {
+        case 'pending': return '#FFA500';
+        case 'processing': return '#007AFF';
+        case 'completed': return '#34C759';
+        case 'failed': return '#FF3B30';
+        default: return '#8E8E93';
+      }
+    };
+
+    const getStatusIcon = (status) => {
+      switch (status) {
+        case 'pending': return 'time-outline';
+        case 'processing': return 'sync-outline';
+        case 'completed': return 'checkmark-circle-outline';
+        case 'failed': return 'close-circle-outline';
+        default: return 'help-circle-outline';
+      }
+    };
+
+    const formatDuration = (task) => {
+      if (!task?.startTime) return '';
+      const startTs = new Date(task.startTime).getTime();
+      const endTs = task.endTime ? new Date(task.endTime).getTime() : Date.now();
+      const duration = Math.max(0, endTs - startTs);
+      const minutes = Math.floor(duration / 60000);
+      const seconds = Math.floor((duration % 60000) / 1000);
+      const hours = Math.floor(minutes / 60);
+      const remMinutes = minutes % 60;
+      if (hours > 0) {
+        return `${hours}时${remMinutes}分${seconds}秒`;
+      }
+      return `${minutes}分${seconds}秒`;
+    };
+
+    return (
+      <View style={styles.taskItem}>
+        <View style={styles.taskHeader}>
+          <View style={styles.stockInfo}>
+            <Text style={styles.stockCode}>{item.stockCode}</Text>
+            {(item.stockName && item.stockName.trim() !== '') && (
+              <Text style={styles.stockName}> - {item.stockName}</Text>
+            )}
+          </View>
+          
+          <View style={styles.statusContainer}>
+            <Ionicons 
+              name={getStatusIcon(item.status)} 
+              size={20} 
+              color={getStatusColor(item.status)} 
+            />
+            <Text style={[styles.statusText, { color: getStatusColor(item.status) }]}>
+              {item.status === 'pending' && '等待中'}
+              {item.status === 'processing' && '分析中'}
+              {item.status === 'completed' && '已完成'}
+              {item.status === 'failed' && '失败'}
+            </Text>
+          </View>
+        </View>
+
+        <Text style={styles.messageText}>
+          分析时间: {formatTime(item.analysis_time || item.timestamp)}
+        </Text>
+
+        {item.result && (
+          <View style={styles.taskFooter}>
+            <Text style={styles.durationText}>
+              来自: {item.userId ? `用户 ${item.userId}` : '未知用户'}
+            </Text>
+            
+            <View style={styles.actionButtons}>
+              {Platform.OS === 'web' ? (
+                <Pressable 
+                  style={styles.viewButton}
+                  onPress={() => {
+                    console.log('🖥️ Web平台查看所有分析结果按钮被点击，任务ID:', item.taskId);
+                    onViewResult && onViewResult(item);
+                  }}
+                >
+                  <Ionicons name="eye-outline" size={16} color="#007AFF" />
+                  <Text style={styles.viewButtonText}>查看结果</Text>
+                </Pressable>
+              ) : (
+                <TouchableOpacity 
+                  style={styles.viewButton}
+                  onPress={() => onViewResult && onViewResult(item)}
+                >
+                  <Ionicons name="eye-outline" size={16} color="#007AFF" />
+                  <Text style={styles.viewButtonText}>查看结果</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+        )}
+
+        <View style={styles.progressContainer}>
+          <View style={styles.progressBar}>
+            <View 
+              style={[
+                styles.progressFill, 
+                { 
+                  width: `${item.progress || 0}%`,
+                  backgroundColor: getStatusColor(item.status)
+                }
+              ]} 
+            />
+          </View>
+          <Text style={styles.progressText}>{item.progress || 0}%</Text>
+        </View>
+
+        <Text style={styles.messageText}>{item.message || '准备中...'}</Text>
+
+        <View style={styles.taskFooter}>
+          <Text style={styles.durationText}>
+            {item.status === 'completed' ? '总耗时 ' : '已用时 '}{formatDuration(item)}
+          </Text>
+          
+          <View style={styles.actionButtons}>
+            {item.status === 'completed' && (
+              Platform.OS === 'web' ? (
+                <Pressable 
+                  style={styles.viewButton}
+                  onPress={() => {
+                    console.log('🖥️ Web平台查看结果按钮被点击，任务ID:', item.taskId);
+                    onViewResult && onViewResult(item);
+                  }}
+                >
+                  <Ionicons name="eye-outline" size={16} color="#007AFF" />
+                  <Text style={styles.viewButtonText}>查看结果</Text>
+                </Pressable>
+              ) : (
+                <TouchableOpacity 
+                  style={styles.viewButton}
+                  onPress={() => onViewResult && onViewResult(item)}
+                >
+                  <Ionicons name="eye-outline" size={16} color="#007AFF" />
+                  <Text style={styles.viewButtonText}>查看结果</Text>
+                </TouchableOpacity>
+              )
+            )}
+            
+            {Platform.OS === 'web' ? (
+              <Pressable 
+                style={styles.deleteButton}
+                onPress={() => {
+                  console.log('🖥️ Web平台删除按钮被点击，任务ID:', item.taskId);
+                  Alert.alert(
+                    '确认删除',
+                    '确定要删除这个分析任务吗？',
+                    [
+                      { text: '取消', style: 'cancel' },
+                      { text: '删除', style: 'destructive', onPress: () => {
+                        console.log('✅ Web平台确认删除任务:', item.taskId);
+                        removeTask(item.taskId);
+                      }}
+                    ]
+                  );
                 }}
               >
                 <Ionicons name="trash-outline" size={16} color="#FF3B30" />
@@ -660,22 +937,62 @@ const AnalysisTaskList = React.forwardRef(({ stockCode, onTaskComplete, onViewRe
   return (
     <View style={styles.container}>
       <FlatList
-        data={tasks}
-        renderItem={renderTaskItem}
+        data={getDisplayTasks()}
+        renderItem={showAllAnalyses ? renderAllAnalysisItem : renderTaskItem}
         keyExtractor={(item) => item.id || item.taskId || `${item.stockCode}-${item.createdAt || ''}`}
         refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={refreshTasks}
-            colors={['#007AFF']}
-          />
+          !showAllAnalyses && (
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={refreshTasks}
+              colors={['#007AFF']}
+            />
+          )
         }
+        onEndReached={showAllAnalyses && hasMoreAnalyses ? onLoadMoreAnalyses : undefined}
+        onEndReachedThreshold={showAllAnalyses ? 0.5 : undefined}
+        ListFooterComponent={() => {
+          if (showAllAnalyses && false) {
+            if (loadingAllAnalyses) {
+              return (
+                <View style={{ padding: 20, alignItems: 'center' }}>
+                  <ActivityIndicator size="small" color="#007AFF" />
+                  <Text style={{ marginTop: 8, color: '#888' }}>加载更多...</Text>
+                </View>
+              );
+            } else if (hasMoreAnalyses) {
+              return (
+                <Button
+                  title="加载更多"
+                  onPress={onLoadMoreAnalyses}
+                  color="#007AFF"
+                  style={{ margin: 16 }}
+                />
+              );
+            } else if (allAnalyses.length > 0) {
+              return (
+                <Text style={{ textAlign: 'center', padding: 16, color: '#888' }}>
+                  没有更多数据了
+                </Text>
+              );
+            }
+          }
+          return null;
+        }}
         ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <Ionicons name="analytics-outline" size={48} color="#8E8E93" />
-            <Text style={styles.emptyText}>暂无分析任务</Text>
-            <Text style={styles.emptySubtext}>点击"开始分析"添加新的股票分析任务</Text>
-          </View>
+          showAllAnalyses ? (
+            !loadingAllAnalyses && (
+              <Text style={{ textAlign: 'center', padding: 20, color: '#888' }}>
+                暂无分析数据
+              </Text>
+            )
+          ) : (
+            <View style={styles.emptyContainer}>
+              <Ionicons name="analytics-outline" size={48} color="#8E8E93" />
+              <Text style={styles.emptyText}>暂无分析任务</Text>
+              <Text style={styles.emptySubtext}>点击"开始分析"添加新的股票分析任务</Text>
+            </View>
+          )
         }
         showsVerticalScrollIndicator={false}
       />

@@ -1268,8 +1268,9 @@ const AnalysisResultView = ({ result, stockCode, onClose }) => {
               <Text style={styles.stockName}> - {getStockName()}</Text>
             )}
           </View>
+          {/* 显示分析时间，优先使用analysis_time字段 */}
           <Text style={styles.analysisTime}>
-            {getTimeDisplay()}
+            {result?.analysis_time ? new Date(result.analysis_time).toLocaleString('zh-CN') : getTimeDisplay()}
           </Text>
         </View>
         

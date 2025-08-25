@@ -1,7 +1,9 @@
 package com.stockanalysis.service;
 
 import com.stockanalysis.model.*;
+import com.stockanalysis.repository.StockAnalysisResultRepository;
 import com.stockanalysis.service.DailyRecommendationStorageService;
+import com.stockanalysis.entity.StockAnalysisResultEntity;
 import com.stockanalysis.util.RetryTemplate;
 
 import lombok.extern.slf4j.Slf4j;
@@ -29,6 +31,7 @@ public class StockAnalysisService {
     private final PythonScriptService pythonScriptService;
     private final AIAnalysisService aiAnalysisService;
     private final DailyRecommendationStorageService dailyRecommendationStorageService;
+    private final StockAnalysisResultRepository stockAnalysisResultRepository;
     private final ExecutorService executorService;
     
     // 缓存相关
@@ -67,15 +70,21 @@ public class StockAnalysisService {
 
     public StockAnalysisService(PythonScriptService pythonScriptService, 
                                AIAnalysisService aiAnalysisService,
-                               DailyRecommendationStorageService dailyRecommendationStorageService) {
+                               DailyRecommendationStorageService dailyRecommendationStorageService,
+                               StockAnalysisResultRepository stockAnalysisResultRepository) {
         this.pythonScriptService = pythonScriptService;
         this.aiAnalysisService = aiAnalysisService;
         this.dailyRecommendationStorageService = dailyRecommendationStorageService;
+        this.stockAnalysisResultRepository = stockAnalysisResultRepository;
         this.executorService = Executors.newFixedThreadPool(6);
     }
     
     public DailyRecommendationStorageService getDailyRecommendationStorageService() {
         return dailyRecommendationStorageService;
+    }
+    
+    public StockAnalysisResultRepository getStockAnalysisResultRepository() {
+        return stockAnalysisResultRepository;
     }
 
     /**
@@ -316,6 +325,9 @@ public class StockAnalysisService {
             
             log.info("股票分析完成: {}，总耗时: {}ms", stockCode, totalDuration);
             logPerformanceMetrics(stockCode);
+            
+            // 保存分析结果到数据库
+            saveAnalysisResult(request, response, aiAnalysisResult);
 
         } catch (Exception e) {
             long totalDuration = System.currentTimeMillis() - startTime;
@@ -949,5 +961,37 @@ public class StockAnalysisService {
             stockName = (String) data.get("companyName");
         }
         return stockName;
+    }
+    
+    /**
+     * 保存分析结果到数据库
+     */
+    private void saveAnalysisResult(StockAnalysisRequest request, StockAnalysisResponse response, AIAnalysisResult aiAnalysisResult) {
+        try {
+            // 先删除同一台机器对同一支股票的旧记录
+            try {
+                stockAnalysisResultRepository.deleteByMachineIdAndStockCode(request.getMachineId(), request.getStockCode());
+                log.info("已删除同一台机器对股票 {} 的旧分析记录", request.getStockCode());
+            } catch (Exception e) {
+                log.warn("删除旧分析记录失败: {}", e.getMessage());
+            }
+            
+            StockAnalysisResultEntity entity = new StockAnalysisResultEntity();
+            entity.setMachineId(request.getMachineId());
+            entity.setStockCode(request.getStockCode());
+            entity.setStockName(response.getStockName());
+            entity.setAnalysisTime(java.time.LocalDateTime.now());
+            entity.setFullAnalysis(aiAnalysisResult.getFullAnalysis());
+            entity.setCompanyFundamentalAnalysis(aiAnalysisResult.getCompanyFundamentalAnalysis());
+            entity.setOperationStrategy(aiAnalysisResult.getOperationStrategy());
+            entity.setIntradayOperations(aiAnalysisResult.getIntradayOperations());
+            entity.setIndustryPolicyOrientation(aiAnalysisResult.getIndustryPolicyOrientation());
+            entity.setStatus("completed");
+            
+            stockAnalysisResultRepository.save(entity);
+            log.info("成功保存股票分析结果到数据库: {} - {}", request.getMachineId(), request.getStockCode());
+        } catch (Exception e) {
+            log.error("保存股票分析结果失败: {}", e.getMessage(), e);
+        }
     }
 }

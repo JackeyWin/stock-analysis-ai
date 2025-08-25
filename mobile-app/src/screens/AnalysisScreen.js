@@ -6,6 +6,7 @@ import {
   Dimensions,
   Modal,
   TouchableOpacity,
+  FlatList,
 } from 'react-native';
 import {
   Card,
@@ -42,6 +43,13 @@ export default function AnalysisScreen({ navigation, route }) {
   const [stockCodeToAnalyze, setStockCodeToAnalyze] = useState(''); // New state
   const [recentStocks, setRecentStocks] = useState([]); // 最近分析的股票
   const [isRecentStocksCollapsed, setIsRecentStocksCollapsed] = useState(true); // 最近分析股票的折叠状态
+  
+  // 查看所有分析数据的状态
+  const [showAllAnalyses, setShowAllAnalyses] = useState(false);
+  const [allAnalyses, setAllAnalyses] = useState([]);
+  const [loadingAllAnalyses, setLoadingAllAnalyses] = useState(false);
+  const [allAnalysesPage, setAllAnalysesPage] = useState(0);
+  const [hasMoreAnalyses, setHasMoreAnalyses] = useState(true);
   
   // 返回顶部按钮状态
   const [showScrollTop, setShowScrollTop] = useState(false);
@@ -194,6 +202,51 @@ export default function AnalysisScreen({ navigation, route }) {
     }
   };
 
+  // 加载所有分析数据（包括他人的）
+  const loadAllAnalyses = async (page = 0, append = false) => {
+    if (loadingAllAnalyses) return;
+    
+    setLoadingAllAnalyses(true);
+    try {
+      const response = await ApiService.getAllAnalysisTasks(page, 10);
+      const newAnalyses = response.content || response;
+      
+      if (append) {
+        setAllAnalyses(prev => [...prev, ...newAnalyses]);
+      } else {
+        setAllAnalyses(newAnalyses);
+      }
+      
+      setAllAnalysesPage(page);
+      setHasMoreAnalyses(newAnalyses.length === 10); // 如果返回10条，认为还有更多
+    } catch (error) {
+      console.error('加载所有分析数据失败:', error);
+      Alert.alert('提示', '加载分析数据失败');
+    } finally {
+      setLoadingAllAnalyses(false);
+    }
+  };
+
+  // 打开所有分析
+  const openAllAnalyses = async () => {
+    setShowAllAnalyses(true);
+    if (allAnalyses.length === 0) {
+      await loadAllAnalyses(0, false);
+    }
+  };
+
+  // 关闭所有分析，返回我的分析
+  const closeAllAnalyses = () => {
+    setShowAllAnalyses(false);
+  };
+
+  // 加载更多分析数据
+  const loadMoreAnalyses = async () => {
+    if (!loadingAllAnalyses && hasMoreAnalyses) {
+      await loadAllAnalyses(allAnalysesPage + 1, true);
+    }
+  };
+
   // 关闭结果模态框
   const handleCloseResult = () => {
     setShowResultModal(false);
@@ -294,20 +347,39 @@ export default function AnalysisScreen({ navigation, route }) {
                 开始综合分析
               </Button>
 
+              <Button
+                mode="outlined"
+                onPress={showAllAnalyses ? closeAllAnalyses : openAllAnalyses}
+                loading={loadingAllAnalyses}
+                style={{ flex: 1 }}
+                icon={showAllAnalyses ? "arrow-left" : "eye"}
+                visible={false}
+              >
+                {showAllAnalyses ? "返回我的分析" : "查看所有分析"}
+              </Button>
             </View>
           </Card.Content>
         </Card>
 
         {/* 任务列表 */}
         <View style={{ marginTop: 12 }}>
-          <Title style={{ marginHorizontal: 16 }}>任务列表</Title>
+          <Title style={{ marginHorizontal: 16 }}>
+            {showAllAnalyses ? "所有分析数据" : "任务列表"}
+          </Title>
           <AnalysisTaskList
             ref={taskListRef}
             stockCode={stockCodeToAnalyze}
             onTaskComplete={handleTaskComplete}
             onViewResult={handleViewResult}
+            showAllAnalyses={showAllAnalyses}
+            allAnalyses={allAnalyses}
+            loadingAllAnalyses={loadingAllAnalyses}
+            onLoadMoreAnalyses={loadMoreAnalyses}
+            hasMoreAnalyses={hasMoreAnalyses}
           />
         </View>
+
+
 
         {/* 加载状态 */}
         {loading && (
@@ -387,6 +459,102 @@ export default function AnalysisScreen({ navigation, route }) {
           onClose={handleCloseResult}
         />
         )}
+      </Modal>
+
+      {/* 所有分析数据模态框 */}
+      <Modal
+        visible={showAllAnalyses}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={closeAllAnalyses}
+      >
+        <View style={{ flex: 1, padding: 16 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
+            <Title style={{ flex: 1 }}>所有分析数据</Title>
+            <Button mode="text" onPress={closeAllAnalyses} icon="close">
+              关闭
+            </Button>
+          </View>
+          
+          <FlatList
+            data={allAnalyses}
+            keyExtractor={(item, index) => `${item.taskId || item.id || index}-${item.stockCode}`}
+            renderItem={({ item }) => (
+              <Card style={{ margin: 8 }}>
+                <Card.Content>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <View>
+                      <Text style={{ fontWeight: 'bold', fontSize: 16 }}>
+                        {item.stockCode}
+                      </Text>
+                      {item.stockName && (
+                        <Text style={{ color: '#666', fontSize: 14 }}>
+                          {item.stockName}
+                        </Text>
+                      )}
+                    </View>
+                    <View style={{ alignItems: 'flex-end' }}>
+                      <Text style={{ color: '#888', fontSize: 12 }}>
+                        {item.analysis_time ? new Date(item.analysis_time).toLocaleString('zh-CN') : 
+                         item.timestamp ? new Date(item.timestamp).toLocaleString('zh-CN') : '未知时间'}
+                      </Text>
+                      <Text style={{ 
+                        color: item.status === 'completed' ? '#34C759' : 
+                               item.status === 'failed' ? '#FF3B30' : '#FF9500',
+                        fontSize: 12 
+                      }}>
+                        {item.status === 'completed' ? '已完成' : 
+                         item.status === 'failed' ? '失败' : '进行中'}
+                      </Text>
+                    </View>
+                  </View>
+                  
+                  {item.result && (
+                    <Button
+                      mode="outlined"
+                      onPress={() => {
+                        handleViewResult(item);
+                        closeAllAnalyses();
+                      }}
+                      style={{ marginTop: 8 }}
+                    >
+                      查看详情
+                    </Button>
+                  )}
+                </Card.Content>
+              </Card>
+            )}
+            onEndReached={loadMoreAnalyses}
+            onEndReachedThreshold={0.5}
+            ListFooterComponent={() => (
+              loadingAllAnalyses ? (
+                <View style={{ padding: 20, alignItems: 'center' }}>
+                  <ActivityIndicator size="small" color={theme.colors.primary} />
+                  <Text style={{ marginTop: 8, color: '#888' }}>加载更多...</Text>
+                </View>
+              ) : hasMoreAnalyses ? (
+                <Button
+                  mode="outlined"
+                  onPress={loadMoreAnalyses}
+                  style={{ margin: 16 }}
+                >
+                  加载更多
+                </Button>
+              ) : allAnalyses.length > 0 ? (
+                <Text style={{ textAlign: 'center', padding: 16, color: '#888' }}>
+                  没有更多数据了
+                </Text>
+              ) : null
+            )}
+            ListEmptyComponent={() => (
+              !loadingAllAnalyses && (
+                <Text style={{ textAlign: 'center', padding: 20, color: '#888' }}>
+                  暂无分析数据
+                </Text>
+              )
+            )}
+          />
+        </View>
       </Modal>
       
       {/* 返回顶部按钮 */}

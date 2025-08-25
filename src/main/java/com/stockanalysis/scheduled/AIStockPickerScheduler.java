@@ -32,7 +32,7 @@ public class AIStockPickerScheduler {
      * cron表达式: 秒 分 时 日 月 周
      * 0 0 1 * * ? 表示每天凌晨1点执行
      */
-    @Scheduled(cron = "0 0 1 * * ?")
+    @Scheduled(cron = "0 0 2 * * ?")
     public void performDailyStockPicking() {
         String currentTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
         log.info("=== 开始执行每日AI选股任务 === 时间: {}", currentTime);

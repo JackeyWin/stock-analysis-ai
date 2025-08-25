@@ -221,6 +221,28 @@ public class PythonScriptService {
     }
 
     /**
+     * 获取全部行业列表（代码与名称）
+     * 调用 EastMoneySectorStocks.py --list
+     */
+    public List<Map<String, String>> getSectorList() {
+        try {
+            String result = executePythonScript("EastMoneySectorStocks.py", "--list");
+            if (result == null || result.isEmpty()) {
+                log.warn("获取行业列表失败: 返回为空");
+                return new ArrayList<>();
+            }
+
+            // 清理可能的杂质并解析
+            result = cleanJsonString(result);
+            List<Map<String, String>> sectors = objectMapper.readValue(result, new TypeReference<List<Map<String, String>>>() {});
+            return sectors;
+        } catch (Exception e) {
+            log.warn("获取行业列表失败: {}，返回空列表", e.getMessage());
+            return new ArrayList<>();
+        }
+    }
+
+    /**
      * 执行Python脚本
      */
     public String executePythonScript(String scriptName, String... args) throws IOException, InterruptedException {
@@ -260,8 +282,6 @@ public class PythonScriptService {
                 try {
                     String line;
                     while ((line = reader.readLine()) != null) {
-                        // 处理Unicode字符和清理乱码
-                        line = processUnicodeString(line);
                         output.append(line).append("\n");
                     }
                 } catch (IOException e) {
@@ -405,6 +425,51 @@ public class PythonScriptService {
                     log.warn("删除临时文件失败: {}", e.getMessage());
                 }
             }
+        }
+    }
+
+    /**
+     * 直接调用Python脚本计算技术指标（高效方式）
+     * 避免通过临时文件传输数据，直接让Python脚本查询数据
+     */
+    public Map<String, Object> calculateTechnicalIndicatorsDirect(String stockCode) {
+        try {
+            log.debug("直接调用Python脚本计算股票{}的技术指标", stockCode);
+            String result = executePythonScript("TechnicalIndicatorsDirect.py", stockCode);
+            return objectMapper.readValue(result, new TypeReference<Map<String, Object>>() {});
+        } catch (Exception e) {
+            log.error("直接计算技术指标失败: {}", e.getMessage(), e);
+            throw new RuntimeException("直接计算技术指标失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 直接调用Python脚本计算大盘技术指标（高效方式）
+     * 避免通过临时文件传输数据，直接让Python脚本查询数据
+     */
+    public Map<String, Object> calculateMarketTechnicalIndicatorsDirect(String stockCode) {
+        try {
+            log.debug("直接调用Python脚本计算大盘技术指标");
+            String result = executePythonScript("MarketTechnicalIndicatorsDirect.py", stockCode);
+            return objectMapper.readValue(result, new TypeReference<Map<String, Object>>() {});
+        } catch (Exception e) {
+            log.error("直接计算大盘技术指标失败: {}", e.getMessage(), e);
+            throw new RuntimeException("直接计算大盘技术指标失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 直接调用Python脚本计算板块技术指标（高效方式）
+     * 避免通过临时文件传输数据，直接让Python脚本查询数据
+     */
+    public Map<String, Object> calculateBoardTechnicalIndicatorsDirect(String stockCode) {
+        try {
+            log.debug("直接调用Python脚本计算板块技术指标");
+            String result = executePythonScript("BoardTechnicalIndicatorsDirect.py", stockCode);
+            return objectMapper.readValue(result, new TypeReference<Map<String, Object>>() {});
+        } catch (Exception e) {
+            log.error("直接计算板块技术指标失败: {}", e.getMessage(), e);
+            throw new RuntimeException("直接计算板块技术指标失败: " + e.getMessage());
         }
     }
     
@@ -572,8 +637,9 @@ public class PythonScriptService {
             
             // 检查是否有错误
             if (analysisResult.containsKey("error")) {
-                log.warn("股票 {} 分时数据分析有错误: {}，返回空结果", stockCode, analysisResult.get("error"));
-                return new HashMap<>(); // 返回空结果而不是报错
+                String errorMsg = (String) analysisResult.get("error");
+                log.warn("股票 {} 分时数据分析有错误: {}，抛出异常", stockCode, errorMsg);
+                throw new RuntimeException("分时数据分析失败: " + errorMsg);
             }
             
             // 获取股票基础数据
@@ -586,8 +652,8 @@ public class PythonScriptService {
             return analysisResult;
             
         } catch (Exception e) {
-            log.warn("获取股票 {} 分时数据分析失败: {}，返回空结果", stockCode, e.getMessage());
-            return new HashMap<>(); // 返回空结果而不是报错
+            log.warn("获取股票 {} 分时数据分析失败: {}，抛出异常", stockCode, e.getMessage());
+            throw new RuntimeException("获取分时数据分析失败: " + e.getMessage(), e);
         }
     }
     

@@ -118,7 +118,7 @@ const AnalysisTaskList = React.forwardRef(({ stockCode, onTaskComplete, onViewRe
         })));
       }
 
-      // 根据股票代码去重，保留最新的一条（假设列表是按新→旧排序）
+      // 根据股票代码去重，保留最新的一条（假设列表是按新\u2192旧排序）
       const seenCodes = new Set();
       const dedupedTasks = [];
       for (const t of finalTasks) {
@@ -178,23 +178,28 @@ const AnalysisTaskList = React.forwardRef(({ stockCode, onTaskComplete, onViewRe
     }
   }, [stockCode, tasks]);
 
-  // 添加新任务
+  // 生成临时ID
+  const generateTempId = () => `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+  // 添加新任务（立即插卡片 \u2192 异步创建 \u2192 替换或完成）
   const addTask = async (stockCode) => {
     try {
       console.log('🔄 开始添加任务:', stockCode);
-      const taskInfo = await apiService.current.startAnalysisTask(stockCode);
-      console.log('✅ 获取到任务信息:', taskInfo);
-      
-      const newTask = {
-        ...taskInfo,
-        id: taskInfo.taskId,
+
+      // 1) 先插入一个临时任务，立刻渲染
+      const tempId = generateTempId();
+      const tempTask = {
+        taskId: tempId,
+        id: tempId,
+        stockCode,
+        status: 'pending',
+        progress: 0,
+        message: '任务已启动',
         startTime: new Date(),
         createdAt: new Date(),
       };
-      
-      console.log('📝 创建新任务对象:', newTask);
-      
-      // 若同股票已有旧任务，先停止其轮询并在列表中移除（保持只保留最新的一条）
+
+      // 停止同股票旧任务轮询并移除
       try {
         const sameCodeTasks = tasks.filter(t => t.stockCode === stockCode);
         sameCodeTasks.forEach(t => stopPolling(t.taskId));
@@ -202,26 +207,65 @@ const AnalysisTaskList = React.forwardRef(({ stockCode, onTaskComplete, onViewRe
         console.warn('停止旧任务轮询时出现问题:', e?.message || e);
       }
 
-      // 使用函数式更新确保获取到最新的tasks状态，同时移除相同股票的旧记录
       setTasks(prevTasks => {
         const filtered = prevTasks.filter(t => t.stockCode !== stockCode);
-        const updatedTasks = [newTask, ...filtered];
-        console.log('📊 更新任务列表，当前任务数:', updatedTasks.length);
-        console.log('📋 任务列表:', updatedTasks.map(t => ({ stockCode: t.stockCode, taskId: t.taskId })));
-        
-        // 异步保存到本地存储
+        const updatedTasks = [tempTask, ...filtered];
         saveTasksToStorage(updatedTasks);
-        
         return updatedTasks;
       });
-       
-       // 等待状态更新后再开始轮询
-       setTimeout(() => {
-         console.log('🔄 开始轮询任务:', newTask.taskId);
-         startPolling(newTask.taskId, newTask.stockCode);
-       }, 100);
-      
-      return newTask;
+
+      // 2) 调后端创建任务
+      let taskInfo;
+      try {
+        taskInfo = await apiService.current.startAnalysisTask(stockCode);
+      } catch (e) {
+        console.error('启动后端任务失败:', e?.message || e);
+        // 标记为失败
+        setTasks(prev => prev.map(t => t.taskId === tempId ? { ...t, status: 'failed', message: e?.message || '启动失败' } : t));
+        saveTasksToStorage(tasks);
+        throw e;
+      }
+
+      console.log('✅ 获取到任务信息:', taskInfo);
+
+      // 3) 根据返回内容替换临时任务
+      if (taskInfo && taskInfo.taskId) {
+        // 有真实任务ID \u2192 替换并开始轮询
+        setTasks(prev => {
+          const updated = prev.map(t => t.taskId === tempId ? {
+            ...t,
+            ...taskInfo,
+            taskId: taskInfo.taskId,
+            id: taskInfo.taskId,
+            status: taskInfo.status || 'pending',
+            message: taskInfo.message || '任务已启动',
+          } : t);
+          saveTasksToStorage(updated);
+          return updated;
+        });
+
+        // 开始轮询
+        setTimeout(() => {
+          startPolling(taskInfo.taskId, stockCode);
+        }, 50);
+
+      } else {
+        // 可能走了同步分析返回结果 \u2192 直接标记完成
+        setTasks(prev => {
+          const updated = prev.map(t => t.taskId === tempId ? {
+            ...t,
+            status: 'completed',
+            progress: 100,
+            message: '分析完成',
+            endTime: new Date(),
+            result: taskInfo, // 同步结果
+          } : t);
+          saveTasksToStorage(updated);
+          return updated;
+        });
+      }
+
+      return taskInfo;
     } catch (error) {
       console.error('❌ 添加任务失败:', error);
       Alert.alert('错误', `启动分析失败: ${error.message}`);
@@ -298,6 +342,27 @@ const AnalysisTaskList = React.forwardRef(({ stockCode, onTaskComplete, onViewRe
               merged.stockName = status.result.stockName;
             } else if (task.stockName) {
               merged.stockName = task.stockName;
+            } else {
+              // 如果所有来源都没有股票名称，尝试从其他字段获取
+              let extractedStockName = null;
+              
+              // 尝试从result中提取
+              if (status.result) {
+                if (status.result.stockBasic?.stockName) {
+                  extractedStockName = status.result.stockBasic.stockName;
+                } else if (status.result.stockName) {
+                  extractedStockName = status.result.stockName;
+                } else if (status.result.aiAnalysisResult?.stockName) {
+                  extractedStockName = status.result.aiAnalysisResult.stockName;
+                }
+              }
+              
+              // 如果还是没有，使用股票代码作为默认名称
+              if (extractedStockName && extractedStockName.trim() !== '') {
+                merged.stockName = extractedStockName;
+              } else {
+                merged.stockName = `股票 ${status.stockCode || task.stockCode || '未知'}`;
+              }
             }
             
             if ((status.status === 'completed' || status.status === 'failed') && !merged.endTime) {
@@ -475,9 +540,9 @@ const AnalysisTaskList = React.forwardRef(({ stockCode, onTaskComplete, onViewRe
                  <View style={styles.taskHeader}>
            <View style={styles.stockInfo}>
              <Text style={styles.stockCode}>{item.stockCode}</Text>
-              {item.stockName && (
-                <Text style={styles.stockName}> - {item.stockName}</Text>
-              )}
+             {(item.stockName && item.stockName.trim() !== '') && (
+               <Text style={styles.stockName}> - {item.stockName}</Text>
+             )}
            </View>
           
           <View style={styles.statusContainer}>
@@ -597,7 +662,7 @@ const AnalysisTaskList = React.forwardRef(({ stockCode, onTaskComplete, onViewRe
       <FlatList
         data={tasks}
         renderItem={renderTaskItem}
-        keyExtractor={(item) => item.taskId}
+        keyExtractor={(item) => item.id || item.taskId || `${item.stockCode}-${item.createdAt || ''}`}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -640,11 +705,15 @@ const styles = StyleSheet.create({
     marginVertical: 8,
     borderRadius: 12,
     padding: 16,
+    // 轻微阴影（仅作用于每个卡片本身）
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 2,
+    // 移除分割线
+    borderBottomWidth: 0,
+    borderBottomColor: 'transparent',
   },
   taskHeader: {
     flexDirection: 'row',

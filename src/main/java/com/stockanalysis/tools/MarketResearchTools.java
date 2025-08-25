@@ -139,15 +139,16 @@ public class MarketResearchTools {
      * @param top      返回条数（1-10，默认5）
      * @return 简洁要点+来源链接
      */
-    @Tool("搜索监管/政策更新，返回要点与链接。参数：industry=行业，region=区域，top=返回数量")
-    public String searchPolicyUpdates(String industry, String region, Integer top) {
+    @Tool("搜索监管/政策更新，返回要点与链接。参数：industry=行业，region=区域，concepts=股票概念，top=返回数量")
+    public String searchPolicyUpdates(String industry, String region, String concepts, Integer top) {
         log.info("🔍 AI调用工具: searchPolicyUpdates - 开始执行");
         log.info("📝 搜索参数: industry='{}', region='{}', top={}", industry, region, top);
         
         int limit = (top == null || top <= 0) ? 5 : Math.min(top, 10);
         String ind = safe(industry);
         String reg = safe(region);
-        log.info("🔧 处理后的参数: industry='{}', region='{}', limit={}", ind, reg, limit);
+        String con = safe(concepts);
+        log.info("🔧 处理后的参数: industry='{}', region='{}', concepts='{}' limit={}", ind, reg, con, limit);
 
         if (!hasTavily()) {
             log.warn("⚠️ Tavily API未配置，返回fallback消息");
@@ -155,7 +156,8 @@ public class MarketResearchTools {
         }
 
         // 采用站点限定更聚焦政策类站点
-        String query = (reg.isEmpty() ? "" : (reg + " ")) + ind + " 政策 文件 监管 site:gov.cn OR site:csrc.gov.cn OR site:pbc.gov.cn OR site:ndrc.gov.cn";
+        String query = (reg.isEmpty() ? "" : (reg + " ")) + ind + (con.isEmpty() ? "" : (" " + con)) + " 政策 文件 监管 site:gov.cn OR site:csrc.gov.cn OR site:pbc.gov.cn OR site:ndrc.gov.cn";
+
         log.info("🌐 构建政策搜索查询: '{}'", query);
 
         log.info("🌐 开始调用Tavily API搜索政策更新");
@@ -164,7 +166,8 @@ public class MarketResearchTools {
                 jsonPair("api_key", tavilyApiKey) + "," +
                 jsonPair("query", query) + "," +
                 jsonPair("search_depth", "basic") + "," +
-                jsonPair("max_results", String.valueOf(limit)) +
+                jsonPair("max_results", String.valueOf(limit)) + "," +
+                jsonPair("time_range", "month") +
                 "}";
         log.debug("📡 API请求体: {}", body);
 
@@ -535,6 +538,84 @@ public class MarketResearchTools {
         }
         String safe = value.replace("\\", "\\\\").replace("\"", "\\\"");
         return "\"" + key + "\":\"" + safe + "\"";
+    }
+
+    /**
+     * 使用Tavily AI Search搜索政策信息
+     *
+     * @param apiKey Tavily API密钥
+     * @param country 国家名称（如"China"）
+     * @param policyArea 政策领域（如"economic policy", "industrial policy"）
+     * @param industry 特定行业（可选，如"artificial intelligence"）
+     * @param maxResults 最大返回结果数
+     * @param timeRange 时间范围（"day", "week", "month", "year"）
+     * @return 政策搜索结果列表
+     */
+    @Tool("获取国家最近政策更新。参数：country 国家名称（如\"China\"）, policyArea 政策领域（如\"economic policy\", \"industrial policy\"）, industry 特定行业（可选，如\"artificial intelligence\"）, maxResults 最大返回结果数（默认10）, timeRange 时间范围（\"day\", \"week\", \"month\", \"year\"）（默认\"day\"）")
+    public String searchPolicies(String country, String policyArea, String industry, int maxResults, String timeRange) {
+        try {
+            // 构建查询字符串
+            String query = buildQueryString(country, policyArea, industry);
+            
+            // 构建API请求URL
+            String api = "https://api.tavily.com/search";
+            String body = "{" +
+                    jsonPair("api_key", tavilyApiKey) + "," +
+                    jsonPair("query", query) + "," +
+                    jsonPair("include_answer", "advanced") + "," +
+                    jsonPair("max_results", String.valueOf(maxResults)) + "," +
+                    jsonPair("time_range", "day") +
+                    "}";
+            
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(api))
+                    .header("Content-Type", "application/json")
+                    .timeout(Duration.ofSeconds(20))
+                    .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
+                    .build();
+            
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            
+            if (response.statusCode() >= 200 && response.statusCode() < 300) {
+                return response.body();
+            } else {
+                return "{\"error\": \"Tavily API请求失败: " + response.statusCode() + " - " + response.body() + "\"}";
+            }
+        } catch (Exception e) {
+            return "{\"error\": \"搜索政策信息时发生错误: " + e.getMessage() + "\"}";
+        }
+    }
+    
+    /**
+     * 构建搜索查询字符串
+     */
+    private String buildQueryString(String country, String policyArea, String industry) {
+        StringBuilder query = new StringBuilder();
+        
+        // 添加国家/地区
+        if (country != null && !country.trim().isEmpty()) {
+            query.append(country).append(" ");
+        }
+        
+        // 添加"最新"关键词
+        query.append("latest ");
+        
+        // 添加行业（如果提供）
+        if (industry != null && !industry.trim().isEmpty()) {
+            query.append(industry).append(" ");
+        }
+        
+        // 添加政策领域
+        query.append(policyArea);
+        
+        // 添加年份（确保获取最新信息）
+        query.append(" 2025");
+        
+        // 添加政府网站偏好
+        query.append(" site:.gov.cn OR site:.gov OR site:xinhuanet.com OR site:china-daily.com.cn OR site:miit.gov.cn");
+
+        
+        return query.toString();
     }
 
     private String fallbackMessage(String method, String query) {

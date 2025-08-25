@@ -34,7 +34,17 @@ export default function SearchScreen({ navigation }) {
   const loadInitialData = async () => {
     try {
       setLoading(true);
-      const response = await ApiService.getPopularStocks();
+      // 模拟热门股票数据
+      const response = {
+        success: true,
+        data: [
+          { code: '000001', name: '平安银行', market: 'SZ' },
+          { code: '600519', name: '贵州茅台', market: 'SH' },
+          { code: '000858', name: '五粮液', market: 'SZ' },
+          { code: '601318', name: '中国平安', market: 'SH' },
+          { code: '000002', name: '万科A', market: 'SZ' },
+        ]
+      };
       if (response.success) {
         setPopularStocks(response.data);
       }

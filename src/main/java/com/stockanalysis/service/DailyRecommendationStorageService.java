@@ -11,7 +11,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -104,9 +104,20 @@ public class DailyRecommendationStorageService {
         entity.setRecommendationDate(dailyRecommendation.getRecommendationDate());
         entity.setCreateTime(dailyRecommendation.getCreateTime() != null ? 
                 dailyRecommendation.getCreateTime() : LocalDateTime.now());
-        entity.setMarketOverview(dailyRecommendation.getMarketOverview());
-        entity.setPolicyHotspots(dailyRecommendation.getPolicyHotspots());
-        entity.setIndustryHotspots(dailyRecommendation.getIndustryHotspots());
+        // 使用新的policyHotspotsAndIndustryHotspots字段
+        if (dailyRecommendation.getPolicyHotspotsAndIndustryHotspots() != null) {
+            // 将Map转换为JSON字符串存储
+            try {
+                ObjectMapper objectMapper = new ObjectMapper();
+                entity.setPolicyHotspotsAndIndustryHotspots(
+                    objectMapper.writeValueAsString(dailyRecommendation.getPolicyHotspotsAndIndustryHotspots()));
+            } catch (Exception e) {
+                log.warn("序列化policyHotspotsAndIndustryHotspots失败: {}", e.getMessage());
+                // 如果序列化失败，使用简化处理
+                entity.setPolicyHotspotsAndIndustryHotspots(
+                    dailyRecommendation.getPolicyHotspotsAndIndustryHotspots().toString());
+            }
+        }
         entity.setSummary(dailyRecommendation.getSummary());
         entity.setAnalystView(dailyRecommendation.getAnalystView());
         entity.setRiskWarning(dailyRecommendation.getRiskWarning());

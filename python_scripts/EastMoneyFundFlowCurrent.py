@@ -126,8 +126,8 @@ class EastMoneyFundFlowCurrent:
 def main():
     """主函数 - 用于测试"""
     if len(sys.argv) != 2:
-        print("使用方法: python EastMoneyFundFlowCurrent.py <股票代码>")
-        print("示例: python EastMoneyFundFlowCurrent.py 688333")
+        print("使用方法: python EastMoneyFundFlowCurrent.py <股票代码>", file=sys.stderr)
+        print("示例: python EastMoneyFundFlowCurrent.py 688333", file=sys.stderr)
         sys.exit(1)
     
     stock_code = sys.argv[1]
@@ -139,7 +139,7 @@ def main():
     if result['success']:
         print(json.dumps(result, ensure_ascii=False))
     else:
-        print(json.dumps({"error": result['error']}, ensure_ascii=False))
+        print(json.dumps({"error": result['error']}, ensure_ascii=False), file=sys.stderr)
         sys.exit(1)
 
 if __name__ == "__main__":

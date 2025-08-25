@@ -159,8 +159,8 @@ public class StockDataTool {
                     result.append("今日资金流向:\n");
                     for (Map<String, Object> item : todayData) {
                         result.append(item.get("资金类型")).append(": ")
-                              .append("净流入 ").append(item.get("净流入额"))
-                              .append(", 占比 ").append(item.get("净占比")).append("%\n");
+                              .append("净流入 ").append(item.get("净流入额（万元）"))
+                              .append(", 占比 ").append(item.get("净占比（%）")).append("%\n");
                     }
                 }
             }

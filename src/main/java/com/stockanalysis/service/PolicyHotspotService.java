@@ -21,9 +21,11 @@ public class PolicyHotspotService {
 
     private final WebClient webClient;
     private final StockAnalysisAI stockAnalysisAI;
+    private final PythonScriptService pythonScriptService;
 
-    public PolicyHotspotService(StockAnalysisAI stockAnalysisAI) {
+    public PolicyHotspotService(StockAnalysisAI stockAnalysisAI, PythonScriptService pythonScriptService) {
         this.stockAnalysisAI = stockAnalysisAI;
+        this.pythonScriptService = pythonScriptService;
         this.webClient = WebClient.builder()
                 .codecs(configurer -> configurer.defaultCodecs().maxInMemorySize(10 * 1024 * 1024))
                 .build();
@@ -41,17 +43,22 @@ public class PolicyHotspotService {
                 
                 // 1. 获取政策热点
                 String policyHotspotsJson = getPolicyHotspots();
-                // 去掉头尾的双引号（如果存在）
-                if (policyHotspotsJson != null && policyHotspotsJson.length() >= 2 && 
-                    policyHotspotsJson.startsWith("\"") && policyHotspotsJson.endsWith("\"")) {
-                    policyHotspotsJson = policyHotspotsJson.substring(1, policyHotspotsJson.length() - 1);
-                }
+                log.debug("获取到的原始政策热点数据: {}", policyHotspotsJson);
+                
+                // 清理和预处理JSON字符串
+                String cleanedJson = cleanJsonString(policyHotspotsJson);
+                log.debug("清理后的JSON数据: {}", cleanedJson);
+                
                 ObjectMapper objectMapper = new ObjectMapper();
                 try {
-                    result = objectMapper.readValue(policyHotspotsJson, new TypeReference<Map<String, String>>(){});     
+                    result = objectMapper.readValue(cleanedJson, new TypeReference<Map<String, String>>(){});     
+                    log.info("成功解析政策热点JSON，共{}个行业", result.size());
                 } catch (Exception e) {
-                    log.error("解析政策热点JSON失败: {}", e.getMessage(), e);
-                    
+                    log.error("解析政策热点JSON失败: {}", e.getMessage());
+                    log.error("原始数据: {}", policyHotspotsJson);
+                    log.error("清理后数据: {}", cleanedJson);
+                    // 返回空结果而不是抛出异常
+                    result = new HashMap<>();
                 }   
                 log.info("政策热点获取完成");
                 return result;
@@ -73,21 +80,56 @@ public class PolicyHotspotService {
             // 使用AI分析当前政策环境和热点
             String currentDate = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
             
+            // 获取行业列表（通过脚本，不再让AI调用工具）
+            String sectorList;
+            try {
+                var sectors = pythonScriptService.getSectorList();
+                StringBuilder sb = new StringBuilder();
+                for (int i = 0; i < sectors.size(); i++) {
+                    var s = sectors.get(i);
+                    String code = s.getOrDefault("code", "");
+                    String name = s.getOrDefault("name", "");
+                    if (name == null || name.isEmpty()) continue;
+                    if (sb.length() > 0) sb.append(", ");
+                    sb.append(name);
+                }
+                sectorList = sb.toString();
+            } catch (Exception ex) {
+                sectorList = ""; // 出错时传空，AI需自行约束输出
+            }
+            
             String prompt = String.format(
-                "请分析当前（%s）中国股市相关的政策热点和方向，包括：\n" +
-                "1. 最新的国家政策导向\n" +
-                "2. 监管政策变化\n" +
-                "3. 产业政策支持方向\n" +
-                "4. 财政货币政策影响\n" +
-                "在分析过程中，请务必使用searchPolicyUpdates工具获取最新的政策信息，区域为\"中国\"，仅返回最近一周的结果，如果结果太多只选取前10条。" +
-                "查询关键词：国家发改委 项目批复清单、财政部 贴息目录、工信部 创新目录、国家数据局 授权运营名单、部门联合声明、政府采购等等" + 
-                "请务必使用getAllSectors工具获取所有的行业名称，然后根据最新政策从这些行业中筛选出政策利好的行业，多概念叠加为最佳。" + 
-                "输出json格式的数据，key:行业名称（这里的行业名称一定要用工具获取的列表中的行业名称，一个字都不要改）, value:利好因素(尽量详细，不超过200字）（标注政策发布时间）" +
-                "一定要输出标准格式的json数据，不要出现任何其他的注释或者符号，只输出{key:value}格式的数据，一定不能出现```json```符号，也不能出现``````符号" + 
-                "输出的json字符串要以{开头，以}结尾，前后不能有双引号，也不能有任何其他符号" + 
-                "一定要输出能被解析的标准json，不能包含特殊字符" + 
-                "如果新闻中有出现企业名称，一定要在利好因素中标注企业名称和企业代码，企业名称和企业代码要对应起来" + 
-                "一定只输出我要求的json数据，其他的分析内容不需要输出，可以放在各利好行业的利好因素里面，否则会出现解析错误",
+                "你是一个专业的政策分析助手。请严格按照以下要求执行：\n\n" +
+                "1. 使用searchPolicies工具获取最新政策信息，查询政策或行业信息只能用这个工具：\n" +
+                "   - 区域：China\n" +
+                "   - 政策领域：economic policy OR industrial policy\n" +
+                "   - 最大返回结果数：10\n" +
+                "   - 时间范围：day\n\n" +
+                "2. 如果上述查询结果不足，依次添加以下关键词：\n" +
+                "   - NDRC (List of Approved Projects)\n" +
+                "   - MOF (Interest Subsidy Catalog)\n" +
+                "   - MIIT (Catalog of Recommended Innovative Technologies)\n" +
+                "   - NDA (List of Authorized Data Operators)\n" +
+                "   - Joint Statement by Government Departments\n" +
+                "   - Public Tendering\n\n" +
+                "3. 已提供全量行业名称列表（必须严格使用以下列表中的行业名称，不得自创/改名）：\n" +
+                "   %s\n\n" +
+                "4. 根据政策信息筛选出政策利好的行业（仅使用上述行业名称）。\n\n" +
+                "5. 输出格式要求：\n" +
+                "   - 必须输出纯JSON格式，不能包含任何其他文字\n" +
+                "   - 不能使用```json```或``````标记\n" +
+                "   - 不能包含注释、说明或其他非JSON内容\n" +
+                "   - JSON结构：{\"行业名称\":\"利好因素描述\"}\n" +
+                "   - 利好因素要求：200字左右，包含政策发布时间、相关产业名称、热点概念名称\n" +
+                "   - 如果涉及企业，一定要标注企业名称，一定要标注股票代码\n\n" +
+                "6. 示例输出格式：\n" +
+                "{\"半导体\":\"2025年8月22日，工信部发布半导体产业支持政策，重点支持国产替代...\",\"新能源\":\"2025年8月22日，发改委发布新能源补贴政策...\"}\n\n" +
+                "7. 重要提醒：\n" +
+                "   - 只输出JSON数据，不要任何其他内容\n" +
+                "   - 确保JSON格式完全正确，可以被标准JSON解析器解析\n" +
+                "   - 如果无法获取有效数据，返回空JSON对象：{}\n\n" +
+                "当前日期：%s",
+                sectorList,
                 currentDate
             );
             
@@ -200,5 +242,44 @@ public class PolicyHotspotService {
         result.put("marketHotspots", "获取失败");
         result.put("hotspotAnalysis", "分析失败");
         return result;
+    }
+
+    /**
+     * 清理和预处理JSON字符串
+     */
+    private String cleanJsonString(String jsonString) {
+        if (jsonString == null || jsonString.trim().isEmpty()) {
+            return "{}";
+        }
+        
+        String cleaned = jsonString.trim();
+        
+        // 移除Markdown代码块标记
+        cleaned = cleaned.replaceAll("```json\\s*", "");
+        cleaned = cleaned.replaceAll("```\\s*", "");
+        
+        // 移除开头和结尾的双引号（如果整个字符串被双引号包围）
+        if (cleaned.startsWith("\"") && cleaned.endsWith("\"")) {
+            cleaned = cleaned.substring(1, cleaned.length() - 1);
+        }
+        
+        // 转义内部的双引号（如果key没有用双引号包围）
+        if (!cleaned.startsWith("{")) {
+            // 尝试提取JSON部分
+            int startIndex = cleaned.indexOf("{");
+            int endIndex = cleaned.lastIndexOf("}");
+            if (startIndex >= 0 && endIndex > startIndex) {
+                cleaned = cleaned.substring(startIndex, endIndex + 1);
+            } else {
+                return "{}";
+            }
+        }
+        
+        // 确保是有效的JSON格式
+        if (!cleaned.startsWith("{") || !cleaned.endsWith("}")) {
+            return "{}";
+        }
+        
+        return cleaned;
     }
 }

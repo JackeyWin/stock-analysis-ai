@@ -10,6 +10,8 @@ import com.stockanalysis.service.StockAnalysisService;
 import com.stockanalysis.service.SimplifiedStockPickerService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+
+import java.util.Map;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -23,6 +25,9 @@ import jakarta.validation.Valid;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 /**
  * 股票分析API控制器
@@ -306,9 +311,22 @@ public class StockAnalysisController {
         model.setRecommendationId(entity.getRecommendationId());
         model.setRecommendationDate(entity.getRecommendationDate());
         model.setCreateTime(entity.getCreateTime());
-        model.setMarketOverview(entity.getMarketOverview());
-        model.setPolicyHotspots(entity.getPolicyHotspots());
-        model.setIndustryHotspots(entity.getIndustryHotspots());
+        // 使用新的policyHotspotsAndIndustryHotspots字段
+        if (entity.getPolicyHotspotsAndIndustryHotspots() != null && !entity.getPolicyHotspotsAndIndustryHotspots().isEmpty()) {
+            // 从JSON字符串转换为Map
+            try {
+                ObjectMapper objectMapper = new ObjectMapper();
+                TypeReference<Map<String, String>> typeRef = new TypeReference<Map<String, String>>() {};
+                Map<String, String> policyHotspotsAndIndustryHotspots = objectMapper.readValue(
+                    entity.getPolicyHotspotsAndIndustryHotspots(), typeRef);
+                model.setPolicyHotspotsAndIndustryHotspots(policyHotspotsAndIndustryHotspots);
+            } catch (Exception e) {
+                log.warn("解析policyHotspotsAndIndustryHotspots失败: {}", e.getMessage());
+                // 如果解析失败，使用简化处理
+                model.setPolicyHotspotsAndIndustryHotspots(
+                    Map.of("data", entity.getPolicyHotspotsAndIndustryHotspots()));
+            }
+        }
         model.setSummary(entity.getSummary());
         model.setAnalystView(entity.getAnalystView());
         model.setRiskWarning(entity.getRiskWarning());

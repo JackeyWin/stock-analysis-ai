@@ -27,9 +27,14 @@ class IntradayAnalyzer:
         """加载分时走势、资金流向数据和当前资金流向数据"""
         try:
             # 获取分时走势数据
+            # 获取脚本所在目录的绝对路径
+            import os
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            trends_script_path = os.path.join(script_dir, 'EastMoneyStockTrendsToday.py')
+            
             trends_result = subprocess.run([
                 sys.executable, 
-                'python_scripts/EastMoneyStockTrendsToday.py', 
+                trends_script_path, 
                 self.stock_code
             ], capture_output=True, text=True, encoding='utf-8', errors='ignore')
             
@@ -61,9 +66,11 @@ class IntradayAnalyzer:
                 return False
                 
             # 获取资金流向数据
+            fund_script_path = os.path.join(script_dir, 'EastMoneyFundFlowToday.py')
+            
             fund_result = subprocess.run([
                 sys.executable, 
-                'python_scripts/EastMoneyFundFlowToday.py', 
+                fund_script_path, 
                 self.stock_code
             ], capture_output=True, text=True, encoding='utf-8', errors='ignore')
             
@@ -122,9 +129,11 @@ class IntradayAnalyzer:
                 print(f"资金流向数据获取失败，使用空数据继续分析", file=sys.stderr)
             
             # 获取当前资金流向数据（新增）
+            current_fund_script_path = os.path.join(script_dir, 'EastMoneyFundFlowCurrent.py')
+            
             current_fund_result = subprocess.run([
                 sys.executable, 
-                'python_scripts/EastMoneyFundFlowCurrent.py', 
+                current_fund_script_path, 
                 self.stock_code
             ], capture_output=True, text=True, encoding='utf-8', errors='ignore')
             

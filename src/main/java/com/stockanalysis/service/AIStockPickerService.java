@@ -23,15 +23,18 @@ public class AIStockPickerService {
     private final StockScreeningService stockScreeningService;
     private final StockAnalysisAI stockAnalysisAI;
     private final StockDataTool stockDataTool;
+    private final PythonScriptService pythonScriptService;
 
     public AIStockPickerService(PolicyHotspotService policyHotspotService,
                                StockScreeningService stockScreeningService,
                                StockAnalysisAI stockAnalysisAI,
-                               StockDataTool stockDataTool) {
+                               StockDataTool stockDataTool,
+                               PythonScriptService pythonScriptService) {
         this.policyHotspotService = policyHotspotService;
         this.stockScreeningService = stockScreeningService;
         this.stockAnalysisAI = stockAnalysisAI;
         this.stockDataTool = stockDataTool;
+        this.pythonScriptService = pythonScriptService;
     }
 
     /**
@@ -44,11 +47,11 @@ public class AIStockPickerService {
                 
                 // 1. 获取政策热点和行业趋势
                 Map<String, String> hotspots = policyHotspotService.getPolicyAndIndustryHotspots().get();
-                log.info("政策热点获取完成");
+                log.info("政策热点获取完成：{}",hotspots);
                 
                 // 2. 筛选优质股票池
                 Map<String, List<Map<String, Object>>> qualityStocks = stockScreeningService.screenQualityStocks(hotspots).get();
-                log.info("筛选到{}只优质股票", qualityStocks.size());
+                log.info("筛选到{}个行业的股票池", qualityStocks.size());
                 
                 // 3. AI分析和遴选
                 Map<String, List<StockRecommendationDetail>> sectorRecommendations = performAIAnalysisAndSelection(qualityStocks, hotspots);
@@ -100,7 +103,7 @@ public class AIStockPickerService {
                 
                 List<CompletableFuture<StockRecommendationDetail>> stockFutures = limitedStocks.stream()
                         .map(stock -> CompletableFuture.supplyAsync(() -> 
-                            analyzeStockWithAI((String) stock.get("stockCode"), hotspots.get(sector))))
+                            analyzeStockWithAI((String) stock.get("stockCode"), hotspots.get(sector)!=null ? hotspots.get(sector) : "")))
                         .collect(Collectors.toList());
                 
                 // 等待该行业所有股票分析完成
@@ -171,13 +174,22 @@ public class AIStockPickerService {
         prompt.append("该股票最新政策利好因素\n");
         prompt.append(goodReasonString).append("\n\n");
         
-        // 使用工具获取股票数据
-        prompt.append("请使用可用的工具获取该股票的详细数据，包括：\n");
-        prompt.append("1. K线数据和技术指标\n");
-        prompt.append("2. 财务分析和基本面数据\n");
-        prompt.append("3. 资金流向和融资融券数据\n");
-        prompt.append("4. 相关新闻和市场情绪\n");
-        prompt.append("5. 同业对比\n");
+        // 使用PythonScriptService获取实际数据
+        List<Map<String, Object>> klineData = pythonScriptService.getStockKlineData(stockCode);
+        Map<String, Object> technicalIndicators = pythonScriptService.calculateTechnicalIndicators(klineData);
+        Map<String, Object> financialData = pythonScriptService.getFinancialAnalysisData(stockCode);
+        List<Map<String, Object>> moneyFlowData = pythonScriptService.getMoneyFlowData(stockCode);
+        List<Map<String, Object>> marginTradingData = pythonScriptService.getMarginTradingData(stockCode);
+        List<Map<String, Object>> newsData = pythonScriptService.getNewsData(stockCode);
+        Map<String, Object> peerComparisonData = pythonScriptService.getPeerComparisonData(stockCode);
+        
+        // 将数据添加到提示词中
+        prompt.append("1. K线数据指标: ").append(technicalIndicators.toString()).append("\n");
+        prompt.append("2. 财务分析和基本面数据: ").append(financialData.toString()).append("\n");
+        prompt.append("3. 资金流向数据: ").append(moneyFlowData.toString()).append("\n");
+        prompt.append("4. 融资融券数据: ").append(marginTradingData.toString()).append("\n");
+        prompt.append("5. 相关新闻和市场情绪: ").append(newsData.toString()).append("\n");
+        prompt.append("6. 同业对比: ").append(peerComparisonData.toString()).append("\n");
         
         prompt.append("基于以上信息，请从以下角度进行分析：\n");
         prompt.append("1. 投资价值评估（1-10分）\n");
@@ -185,7 +197,8 @@ public class AIStockPickerService {
         prompt.append("3. 风险等级评估（低/中/高）\n");
         prompt.append("4. 投资时间建议（短期/中期/长期）\n");
         prompt.append("5. 目标价格预测\n");
-        prompt.append("6. 所属领域/行业分类\n\n");
+        prompt.append("6. 预计收益\n");
+        prompt.append("7. 所属领域/行业分类\n\n");
         
         prompt.append("请以JSON格式返回分析结果：\n");
         prompt.append("{\n");
@@ -327,10 +340,11 @@ public class AIStockPickerService {
         recommendation.setStatus("ACTIVE");
         recommendation.setVersion(1);
         
-        // 市场概况和热点
-        recommendation.setPolicyHotspots((String) hotspots.get("policyHotspots"));
-        recommendation.setIndustryHotspots((String) hotspots.get("industryHotspots"));
-        recommendation.setMarketOverview((String) hotspots.get("hotspotAnalysis"));
+        // 设置政策热点和行业热点
+        // 将hotspots Map<String, String>直接设置到recommendation中
+        if (hotspots instanceof Map) {
+            recommendation.setPolicyHotspotsAndIndustryHotspots((Map<String, String>) hotspots);
+        }
         
         // 推荐股票
         List<StockRecommendationDetail> allRecommendations = new ArrayList<>();
@@ -435,7 +449,6 @@ public class AIStockPickerService {
         recommendation.setVersion(1);
         recommendation.setSummary("AI选股服务暂时不可用");
         recommendation.setAnalystView(errorMessage);
-        recommendation.setRecommendedStocks(new ArrayList<>());
         
         return recommendation;
     }

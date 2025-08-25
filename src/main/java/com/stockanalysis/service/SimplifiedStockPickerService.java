@@ -86,15 +86,10 @@ public class SimplifiedStockPickerService {
      * 匹配政策受益行业
      * 输出一个map，key是行业名，value是利好因素，支持多因素叠加
      */
-    private Map<String, String> matchPolicyBenefitSectors(Map<String, Object> hotspots) {
+    private Map<String, String> matchPolicyBenefitSectors(Map<String, String> hotspots) {
         try {
             // 获取所有行业列表
             List<String> allSectors = getAllSectors();
-            
-            // 从热点信息中提取政策热点
-            String policyHotspots = (String) hotspots.get("policyHotspots");
-            String industryHotspots = (String) hotspots.get("industryHotspots");
-            String marketHotspots = (String) hotspots.get("marketHotspots");
             
             Map<String, String> sectorBenefits = new HashMap<>();
             
@@ -102,19 +97,9 @@ public class SimplifiedStockPickerService {
             for (String sector : allSectors) {
                 List<String> benefits = new ArrayList<>();
                 
-                // 检查是否与政策热点相关
-                if (policyHotspots != null && policyHotspots.contains(sector)) {
-                    benefits.add("政策支持");
-                }
-                
-                // 检查是否与行业热点相关
-                if (industryHotspots != null && industryHotspots.contains(sector)) {
-                    benefits.add("行业景气度提升");
-                }
-                
-                // 检查是否与市场热点相关
-                if (marketHotspots != null && marketHotspots.contains(sector)) {
-                    benefits.add("市场关注度高");
+                // 检查热点中是否包含该行业
+                if (hotspots.containsKey(sector)) {
+                    benefits.add(hotspots.get(sector));
                 }
                 
                 // 如果有匹配的利好因素，则加入结果

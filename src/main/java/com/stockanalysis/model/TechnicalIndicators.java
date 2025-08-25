@@ -10,11 +10,43 @@ import java.util.List;
 @Data
 public class TechnicalIndicators {
     
-    // 日期映射格式 - 近5日指标数据
+    // 日期映射格式 - 近5日指标数据（旧格式兼容）
     private List<DailyIndicators> dailyIndicators;
     
+    // 当前技术指标值（新格式）
+    private Double ma5;                 // 5日移动平均线
+    private Double ma10;                // 10日移动平均线
+    private Double ma20;                // 20日移动平均线
+    private Double ma30;                // 30日移动平均线
+    private Double ma60;                // 60日移动平均线
+    
+    // 技术指标
+    private Double rsi;                 // RSI指标
+    private Double macd;                // MACD指标
+    private Double macdSignal;          // MACD信号线
+    private Double macdHistogram;       // MACD柱状图
+    
+    // 布林带
+    private Double bollingerUpper;      // 布林带上轨
+    private Double bollingerMiddle;     // 布林带中轨
+    private Double bollingerLower;      // 布林带下轨
+    
+    // KDJ指标
+    private Double kdjK;                // KDJ指标K值
+    private Double kdjD;                // KDJ指标D值
+    private Double kdjJ;                // KDJ指标J值
+    
+    // 成交量指标
+    private Double volumeMa;            // 成交量移动平均
+    private Double volumeRatio;         // 成交量比率
+    
+    // 支撑阻力位
+    private Double support;             // 支撑位
+    private Double resistance;          // 阻力位
+    private Double currentPrice;        // 当前价格
+    
     /**
-     * 每日技术指标数据
+     * 每日技术指标数据（旧格式兼容）
      */
     @Data
     public static class DailyIndicators {

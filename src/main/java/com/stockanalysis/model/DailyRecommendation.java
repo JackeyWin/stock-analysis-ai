@@ -6,6 +6,7 @@ import lombok.AllArgsConstructor;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 每日推荐数据模型
@@ -31,19 +32,10 @@ public class DailyRecommendation {
     private LocalDateTime createTime;
     
     /**
-     * 市场概况
+     * 政策热点和行业热点
+     * key: 行业名称, value: 最近的政策利好消息
      */
-    private String marketOverview;
-    
-    /**
-     * 政策热点
-     */
-    private String policyHotspots;
-    
-    /**
-     * 行业热点
-     */
-    private String industryHotspots;
+    private Map<String, String> policyHotspotsAndIndustryHotspots;
     
     /**
      * 推荐股票列表

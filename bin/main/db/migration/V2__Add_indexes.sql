@@ -1,0 +1,4 @@
+CREATE INDEX idx_daily_recommendation_date ON daily_recommendation(recommendation_date);
+CREATE INDEX idx_stock_recommendation_code ON stock_recommendation_detail(stock_code);
+CREATE INDEX idx_stock_recommendation_sector ON stock_recommendation_detail(sector);
+CREATE INDEX idx_stock_recommendation_hot ON stock_recommendation_detail(is_hot);

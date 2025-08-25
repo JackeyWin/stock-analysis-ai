@@ -206,7 +206,6 @@ public class AIAnalysisService {
         result.setIndustryPolicyOrientation(industryPolicyOrientation);
         result.setOperationStrategy(operationStrategy);
         result.setIntradayOperations(intradayOperations);
-    
         
         log.debug("AI响应解析完成");
         return result;

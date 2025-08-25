@@ -12,6 +12,9 @@ import SearchScreen from './src/screens/SearchScreen';
 import AnalysisScreen from './src/screens/AnalysisScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 import StockDetailScreen from './src/screens/StockDetailScreen';
+import RecommendationDetailScreen from './src/screens/RecommendationDetailScreen';
+import HistoryScreen from './src/screens/HistoryScreen';
+
 
 // 导入主题
 import { theme } from './src/utils/theme';
@@ -95,6 +98,29 @@ function AppNavigator() {
             headerTintColor: '#fff',
           }}
         />
+        <Stack.Screen 
+          name="RecommendationDetail" 
+          component={RecommendationDetailScreen}
+          options={{ 
+            title: '推荐详情',
+            headerStyle: {
+              backgroundColor: theme.colors.primary,
+            },
+            headerTintColor: '#fff',
+          }}
+        />
+        <Stack.Screen 
+          name="History" 
+          component={HistoryScreen}
+          options={{ 
+            title: '历史推荐',
+            headerStyle: {
+              backgroundColor: theme.colors.primary,
+            },
+            headerTintColor: '#fff',
+          }}
+        />
+
       </Stack.Navigator>
     </NavigationContainer>
   );

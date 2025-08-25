@@ -46,7 +46,7 @@ public class LangChain4jConfig {
                 .modelName(model)
                 .temperature(0.7)
 //                .maxTokens(2000)
-                .timeout(Duration.ofMinutes(5))
+                .timeout(Duration.ofMinutes(10))
                 .logRequests(true)
                 .logResponses(true)
                 .build();

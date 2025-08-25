@@ -94,9 +94,9 @@ def get_stock_trends(stock_code):
         return result
 
     except requests.exceptions.RequestException as e:
-        print(f"网络请求失败: {str(e)}")
+        print(f"网络请求失败: {str(e)}", file=sys.stderr)
     except Exception as e:
-        print(f"数据处理出错: {str(e)}")
+        print(f"数据处理出错: {str(e)}", file=sys.stderr)
 
     return None
 
@@ -109,4 +109,4 @@ if __name__ == "__main__":
     if trends_data is not None:
         print(json.dumps(trends_data, ensure_ascii=False))
     else:
-        print(json.dumps({"error": "获取分时数据失败"}, ensure_ascii=False))
+        print(json.dumps({"error": "获取分时数据失败"}, ensure_ascii=False), file=sys.stderr)

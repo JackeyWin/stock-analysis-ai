@@ -67,8 +67,17 @@ export default function AnalysisScreen({ navigation, route }) {
       return;
     }
 
-    // 只支持综合分析，使用异步列表模式
-    setStockCodeToAnalyze(stockCode.trim());
+    const code = stockCode.trim();
+
+    // 直接调用子组件方法新增任务，保证立刻出现“分析中”卡片
+    try {
+      await taskListRef.current?.addTask(code);
+    } catch (e) {
+      console.warn('启动任务失败:', e?.message || e);
+    }
+
+    // 兼容旧逻辑：仍然传递给子组件作为兜底
+    setStockCodeToAnalyze(code);
     setStockCode('');
   };
 
@@ -120,6 +129,10 @@ export default function AnalysisScreen({ navigation, route }) {
         stockName = task.result.stockBasic.stockName;
       } else if (task?.stockName) {
         stockName = task.stockName;
+      } else if (task?.result?.stockName) {
+        stockName = task.result.stockName;
+      } else if (task?.result?.aiAnalysisResult?.stockName) {
+        stockName = task.result.aiAnalysisResult.stockName;
       } else {
         stockName = `股票 ${task?.stockCode || ''}`.trim();
       }
@@ -153,6 +166,10 @@ export default function AnalysisScreen({ navigation, route }) {
       stockName = task.result.stockBasic.stockName;
     } else if (task.stockName) {
       stockName = task.stockName;
+    } else if (task.result?.stockName) {
+      stockName = task.result.stockName;
+    } else if (task.result?.aiAnalysisResult?.stockName) {
+      stockName = task.result.aiAnalysisResult.stockName;
     } else {
       stockName = `股票 ${task.stockCode}`;
     }
@@ -282,17 +299,15 @@ export default function AnalysisScreen({ navigation, route }) {
         </Card>
 
         {/* 任务列表 */}
-        <Card style={styles.card}>
-          <Card.Content>
-            <Title>任务列表</Title>
-            <AnalysisTaskList
-              ref={taskListRef}
-              stockCode={stockCodeToAnalyze}
-              onTaskComplete={handleTaskComplete}
-              onViewResult={handleViewResult}
-            />
-          </Card.Content>
-        </Card>
+        <View style={{ marginTop: 12 }}>
+          <Title style={{ marginHorizontal: 16 }}>任务列表</Title>
+          <AnalysisTaskList
+            ref={taskListRef}
+            stockCode={stockCodeToAnalyze}
+            onTaskComplete={handleTaskComplete}
+            onViewResult={handleViewResult}
+          />
+        </View>
 
         {/* 加载状态 */}
         {loading && (

@@ -238,10 +238,25 @@ app.get('/api/mobile/stock/analyze-status/:taskId', (req, res) => {
     
     // 如果任务已完成且有结果，尝试从结果中提取股票名称
     if (job.status === 'completed' && job.result) {
-        responseData.stockName = job.stockName || 
-                                job.result?.stockBasic?.stockName || 
-                                job.result?.stockName || 
-                                `股票 ${job.stockCode}`;
+        // 多重保障：从多个可能的字段获取股票名称
+        let stockName = job.stockName;
+        
+        if (!stockName || stockName.trim() === '') {
+            if (job.result?.stockBasic?.stockName) {
+                stockName = job.result.stockBasic.stockName;
+            } else if (job.result?.stockName) {
+                stockName = job.result.stockName;
+            } else if (job.result?.aiAnalysisResult?.stockName) {
+                stockName = job.result.aiAnalysisResult.stockName;
+            }
+        }
+        
+        // 如果还是没有，使用默认名称
+        if (!stockName || stockName.trim() === '') {
+            stockName = `股票 ${job.stockCode}`;
+        }
+        
+        responseData.stockName = stockName;
     }
     
     res.json(responseData);
@@ -299,9 +314,21 @@ async function performAsyncAnalysis(jobId, stockCode) {
         clearInterval(progressInterval);
         
         // 更新任务状态为完成
-        const stockName = response.data?.stockBasic?.stockName || 
-                         response.data?.stockName || 
-                         `股票 ${stockCode}`;
+        // 多重保障：从多个可能的字段获取股票名称
+        let stockName = response.data?.stockBasic?.stockName;
+        
+        if (!stockName || stockName.trim() === '') {
+            if (response.data?.stockName) {
+                stockName = response.data.stockName;
+            } else if (response.data?.aiAnalysisResult?.stockName) {
+                stockName = response.data.aiAnalysisResult.stockName;
+            }
+        }
+        
+        // 如果还是没有，使用默认名称
+        if (!stockName || stockName.trim() === '') {
+            stockName = `股票 ${stockCode}`;
+        }
         
         analysisJobs.set(jobId, {
             ...job,
@@ -363,6 +390,343 @@ app.get('/api/mobile/stocks/popular', (req, res) => {
         data: popularStocks,
         timestamp: new Date().toISOString()
     });
+});
+
+// 每日推荐API代理 - 获取推荐摘要
+app.get('/api/recommendations/summary', async (req, res) => {
+    try {
+        const response = await axios.get(
+            `${STOCK_ANALYSIS_SERVICE_URL}/api/recommendations/summary`,
+            {
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                },
+                timeout: 30000,  // 30秒超时
+                responseType: 'json',
+                responseEncoding: 'utf8'
+            }
+        );
+        
+        res.json(response.data);
+    } catch (error) {
+        console.error('获取推荐摘要代理错误:', error.message);
+        
+        if (error.response) {
+            res.status(error.response.status).json(error.response.data);
+        } else if (error.code === 'ECONNREFUSED') {
+            res.status(503).json({
+                success: false,
+                message: '后端服务不可用',
+                code: 'SERVICE_UNAVAILABLE'
+            });
+        } else {
+            res.status(500).json({
+                success: false,
+                message: '网关内部错误',
+                code: 'GATEWAY_ERROR'
+            });
+        }
+    }
+});
+
+// 每日推荐API代理 - 获取今日推荐
+app.get('/api/recommendations/today', async (req, res) => {
+    try {
+        const response = await axios.get(
+            `${STOCK_ANALYSIS_SERVICE_URL}/api/recommendations/today`,
+            {
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                },
+                timeout: 30000,  // 30秒超时
+                responseType: 'json',
+                responseEncoding: 'utf8'
+            }
+        );
+        
+        res.json(response.data);
+    } catch (error) {
+        console.error('获取今日推荐代理错误:', error.message);
+        
+        if (error.response) {
+            res.status(error.response.status).json(error.response.data);
+        } else if (error.code === 'ECONNREFUSED') {
+            res.status(503).json({
+                success: false,
+                message: '后端服务不可用',
+                code: 'SERVICE_UNAVAILABLE'
+            });
+        } else {
+            res.status(500).json({
+                success: false,
+                message: '网关内部错误',
+                code: 'GATEWAY_ERROR'
+            });
+        }
+    }
+});
+
+// 每日推荐API代理 - 获取热门推荐
+app.get('/api/recommendations/hot', async (req, res) => {
+    try {
+        const response = await axios.get(
+            `${STOCK_ANALYSIS_SERVICE_URL}/api/recommendations/hot`,
+            {
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                },
+                timeout: 30000,  // 30秒超时
+                responseType: 'json',
+                responseEncoding: 'utf8'
+            }
+        );
+        
+        res.json(response.data);
+    } catch (error) {
+        console.error('获取热门推荐代理错误:', error.message);
+        
+        if (error.response) {
+            res.status(error.response.status).json(error.response.data);
+        } else if (error.code === 'ECONNREFUSED') {
+            res.status(503).json({
+                success: false,
+                message: '后端服务不可用',
+                code: 'SERVICE_UNAVAILABLE'
+            });
+        } else {
+            res.status(500).json({
+                success: false,
+                message: '网关内部错误',
+                code: 'GATEWAY_ERROR'
+            });
+        }
+    }
+});
+
+// 每日推荐API代理 - 按领域获取推荐
+app.get('/api/recommendations/sector/:sector', async (req, res) => {
+    try {
+        const { sector } = req.params;
+        const response = await axios.get(
+            `${STOCK_ANALYSIS_SERVICE_URL}/api/recommendations/sector/${sector}`,
+            {
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                },
+                timeout: 30000,  // 30秒超时
+                responseType: 'json',
+                responseEncoding: 'utf8'
+            }
+        );
+        
+        res.json(response.data);
+    } catch (error) {
+        console.error('按领域获取推荐代理错误:', error.message);
+        
+        if (error.response) {
+            res.status(error.response.status).json(error.response.data);
+        } else if (error.code === 'ECONNREFUSED') {
+            res.status(503).json({
+                success: false,
+                message: '后端服务不可用',
+                code: 'SERVICE_UNAVAILABLE'
+            });
+        } else {
+            res.status(500).json({
+                success: false,
+                message: '网关内部错误',
+                code: 'GATEWAY_ERROR'
+            });
+        }
+    }
+});
+
+// 每日推荐API代理 - 获取推荐详情
+app.get('/api/recommendations/detail/:stockCode', async (req, res) => {
+    try {
+        const { stockCode } = req.params;
+        const response = await axios.get(
+            `${STOCK_ANALYSIS_SERVICE_URL}/api/recommendations/detail/${stockCode}`,
+            {
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                },
+                timeout: 30000,  // 30秒超时
+                responseType: 'json',
+                responseEncoding: 'utf8'
+            }
+        );
+        
+        res.json(response.data);
+    } catch (error) {
+        console.error('获取推荐详情代理错误:', error.message);
+        
+        if (error.response) {
+            res.status(error.response.status).json(error.response.data);
+        } else if (error.code === 'ECONNREFUSED') {
+            res.status(503).json({
+                success: false,
+                message: '后端服务不可用',
+                code: 'SERVICE_UNAVAILABLE'
+            });
+        } else {
+            res.status(500).json({
+                success: false,
+                message: '网关内部错误',
+                code: 'GATEWAY_ERROR'
+            });
+        }
+    }
+});
+
+// 每日推荐API代理 - 手动刷新推荐
+app.post('/api/recommendations/refresh', async (req, res) => {
+    try {
+        const response = await axios.post(
+            `${STOCK_ANALYSIS_SERVICE_URL}/api/recommendations/refresh`,
+            req.body,
+            {
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                },
+                timeout: 30000,  // 30秒超时
+                responseType: 'json',
+                responseEncoding: 'utf8'
+            }
+        );
+        
+        res.json(response.data);
+    } catch (error) {
+        console.error('手动刷新推荐代理错误:', error.message);
+        
+        if (error.response) {
+            res.status(error.response.status).json(error.response.data);
+        } else if (error.code === 'ECONNREFUSED') {
+            res.status(503).json({
+                success: false,
+                message: '后端服务不可用',
+                code: 'SERVICE_UNAVAILABLE'
+            });
+        } else {
+            res.status(500).json({
+                success: false,
+                message: '网关内部错误',
+                code: 'GATEWAY_ERROR'
+            });
+        }
+    }
+});
+
+// 每日推荐API代理 - 获取推荐状态
+app.get('/api/recommendations/status', async (req, res) => {
+    try {
+        const response = await axios.get(
+            `${STOCK_ANALYSIS_SERVICE_URL}/api/recommendations/status`,
+            {
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                },
+                timeout: 30000,  // 30秒超时
+                responseType: 'json',
+                responseEncoding: 'utf8'
+            }
+        );
+        
+        res.json(response.data);
+    } catch (error) {
+        console.error('获取推荐状态代理错误:', error.message);
+        
+        if (error.response) {
+            res.status(error.response.status).json(error.response.data);
+        } else if (error.code === 'ECONNREFUSED') {
+            res.status(503).json({
+                success: false,
+                message: '后端服务不可用',
+                code: 'SERVICE_UNAVAILABLE'
+            });
+        } else {
+            res.status(500).json({
+                success: false,
+                message: '网关内部错误',
+                code: 'GATEWAY_ERROR'
+            });
+        }
+    }
+});
+
+// 每日推荐API代理 - 获取可用日期列表
+app.get('/api/recommendations/dates', async (req, res) => {
+    try {
+        const response = await axios.get(
+            `${STOCK_ANALYSIS_SERVICE_URL}/api/recommendations/dates`,
+            {
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                },
+                timeout: 30000,  // 30秒超时
+                responseType: 'json',
+                responseEncoding: 'utf8'
+            }
+        );
+        
+        res.json(response.data);
+    } catch (error) {
+        console.error('获取可用日期列表代理错误:', error.message);
+        
+        if (error.response) {
+            res.status(error.response.status).json(error.response.data);
+        } else if (error.code === 'ECONNREFUSED') {
+            res.status(503).json({
+                success: false,
+                message: '后端服务不可用',
+                code: 'SERVICE_UNAVAILABLE'
+            });
+        } else {
+            res.status(500).json({
+                success: false,
+                message: '网关内部错误',
+                code: 'GATEWAY_ERROR'
+            });
+        }
+    }
+});
+
+// 每日推荐API代理 - 根据日期获取推荐数据
+app.get('/api/recommendations/by-date/:date', async (req, res) => {
+    try {
+        const { date } = req.params;
+        const response = await axios.get(
+            `${STOCK_ANALYSIS_SERVICE_URL}/api/recommendations/by-date/${date}`,
+            {
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                },
+                timeout: 30000,  // 30秒超时
+                responseType: 'json',
+                responseEncoding: 'utf8'
+            }
+        );
+        
+        res.json(response.data);
+    } catch (error) {
+        console.error('根据日期获取推荐数据代理错误:', error.message);
+        
+        if (error.response) {
+            res.status(error.response.status).json(error.response.data);
+        } else if (error.code === 'ECONNREFUSED') {
+            res.status(503).json({
+                success: false,
+                message: '后端服务不可用',
+                code: 'SERVICE_UNAVAILABLE'
+            });
+        } else {
+            res.status(500).json({
+                success: false,
+                message: '网关内部错误',
+                code: 'GATEWAY_ERROR'
+            });
+        }
+    }
 });
 
 // 错误处理中间件

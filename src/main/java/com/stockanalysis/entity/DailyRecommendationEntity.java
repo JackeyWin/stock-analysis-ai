@@ -59,6 +59,13 @@ public class DailyRecommendationEntity {
     private String industryHotspots;
     
     /**
+     * 政策热点和行业热点
+     * key: 行业名称, value: 最近的政策利好消息
+     */
+    @Column(name = "policy_hotspots_and_industry_hotspots", length = 5000)
+    private String policyHotspotsAndIndustryHotspots;
+    
+    /**
      * 推荐总结
      */
     @Column(name = "summary", length = 5000)

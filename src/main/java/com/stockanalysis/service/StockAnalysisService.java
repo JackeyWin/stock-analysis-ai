@@ -2,6 +2,8 @@ package com.stockanalysis.service;
 
 import com.stockanalysis.model.*;
 import com.stockanalysis.service.DailyRecommendationStorageService;
+import com.stockanalysis.util.RetryTemplate;
+
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -113,10 +115,22 @@ public class StockAnalysisService {
                 CompletableFuture.supplyAsync(() -> pythonScriptService.getMarginTradingData(stockCode), executorService);
             
             CompletableFuture<Map<String, Object>> intradayAnalysisFuture =
-                CompletableFuture.supplyAsync(() -> pythonScriptService.getIntradayAnalysis(stockCode), executorService);
+                CompletableFuture.supplyAsync(() -> {
+                    try {
+                        return pythonScriptService.getIntradayAnalysis(stockCode);
+                    } catch (Exception e) {
+                        log.warn("获取股票 {} 分时数据分析失败: {}", stockCode, e.getMessage(), e);
+                        // 返回一个包含错误信息的Map，而不是抛出异常导致整个分析失败
+                        Map<String, Object> errorResult = new HashMap<>();
+                        errorResult.put("error", "分时数据分析失败: " + e.getMessage());
+                        return errorResult;
+                    }
+                }, executorService);
             
             CompletableFuture<Map<String, Object>> peerComparisonFuture =
-                CompletableFuture.supplyAsync(() -> pythonScriptService.getPeerComparisonData(stockCode), executorService);
+                CompletableFuture.supplyAsync(() -> RetryTemplate.executeWithRetry(() -> 
+                    pythonScriptService.getPeerComparisonData(stockCode),
+                    3, 1000), executorService);
             
             CompletableFuture<Map<String, Object>> financialAnalysisFuture =
                 CompletableFuture.supplyAsync(() -> pythonScriptService.getFinancialAnalysisData(stockCode), executorService);
@@ -126,23 +140,23 @@ public class StockAnalysisService {
 
             // 注释：原本的 allDataFuture 已被后续的 allDataFuture2 替代
 
-            // 在数据获取的同时，准备技术指标计算的异步任务（使用缓存优化）
+            // 在数据获取的同时，准备技术指标计算的异步任务（使用高效方式）
             CompletableFuture<Map<String, Object>> technicalIndicatorsFuture = 
-                stockDataFuture.thenApplyAsync(stockData -> {
+                CompletableFuture.supplyAsync(() -> {
                     log.debug("开始计算股票技术指标");
-                    return getCachedTechnicalIndicators(stockCode, stockData);
+                    return pythonScriptService.calculateTechnicalIndicatorsDirect(stockCode);
                 }, executorService);
 
             CompletableFuture<Map<String, Object>> marketTechnicalIndicatorsFuture = 
-                marketDataFuture.thenApplyAsync(marketData -> {
+                CompletableFuture.supplyAsync(() -> {
                     log.debug("开始计算大盘技术指标");
-                    return pythonScriptService.calculateTechnicalIndicators(marketData);
+                    return pythonScriptService.calculateMarketTechnicalIndicatorsDirect(stockCode);
                 }, executorService);
 
             CompletableFuture<Map<String, Object>> boardTechnicalIndicatorsFuture = 
-                boardDataFuture.thenApplyAsync(boardData -> {
+                CompletableFuture.supplyAsync(() -> {
                     log.debug("开始计算板块技术指标");
-                    return pythonScriptService.calculateTechnicalIndicators(boardData);
+                    return pythonScriptService.calculateBoardTechnicalIndicatorsDirect(stockCode);
                 }, executorService);
 
             // 准备AI分析的流式处理 - 当核心数据就绪时就开始分析
@@ -241,8 +255,58 @@ public class StockAnalysisService {
                 @SuppressWarnings("unchecked")
                 Map<String, Object> stockBasic = (Map<String, Object>) intradayAnalysis.get("stockBasic");
                 response.setStockBasic(stockBasic);
-                if (stockBasic != null && stockBasic.get("stockName") instanceof String) {
-                    response.setStockName((String) stockBasic.get("stockName"));
+                
+                // 多重保障：确保股票名称被正确设置
+                if (stockBasic != null) {
+                    // 尝试从多个可能的字段获取股票名称
+                    String stockName = null;
+                    if (stockBasic.get("stockName") instanceof String) {
+                        stockName = (String) stockBasic.get("stockName");
+                    } else if (stockBasic.get("name") instanceof String) {
+                        stockName = (String) stockBasic.get("name");
+                    } else if (stockBasic.get("companyName") instanceof String) {
+                        stockName = (String) stockBasic.get("companyName");
+                    }
+                    
+                    if (stockName != null && !stockName.trim().isEmpty()) {
+                        response.setStockName(stockName);
+                        log.debug("成功设置股票名称: {} -> {}", stockCode, stockName);
+                    } else {
+                        log.warn("股票{}的基础数据中未找到有效的股票名称", stockCode);
+                    }
+                }
+            }
+            
+            // 如果还没有设置股票名称，尝试从其他数据源获取
+            if (response.getStockName() == null || response.getStockName().trim().isEmpty()) {
+                // 尝试从技术指标数据中获取
+                if (technicalIndicators != null && technicalIndicators.containsKey("stockBasic")) {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> techStockBasic = (Map<String, Object>) technicalIndicators.get("stockBasic");
+                    if (techStockBasic != null) {
+                        String stockName = extractStockName(techStockBasic);
+                        if (stockName != null && !stockName.trim().isEmpty()) {
+                            response.setStockName(stockName);
+                            log.debug("从技术指标数据中获取股票名称: {} -> {}", stockCode, stockName);
+                        }
+                    }
+                }
+                
+                // 如果还是没有，尝试从AI分析结果中获取
+                if ((response.getStockName() == null || response.getStockName().trim().isEmpty()) && 
+                    aiAnalysisResult != null) {
+                    String stockName = aiAnalysisResult.getStockName();
+                    if (stockName != null && !stockName.trim().isEmpty()) {
+                        response.setStockName(stockName);
+                        log.debug("从AI分析结果中获取股票名称: {} -> {}", stockCode, stockName);
+                    }
+                }
+                
+                // 如果还是没有，设置一个默认名称
+                if (response.getStockName() == null || response.getStockName().trim().isEmpty()) {
+                    String defaultName = "股票" + stockCode;
+                    response.setStockName(defaultName);
+                    log.warn("使用默认股票名称: {} -> {}", stockCode, defaultName);
                 }
             }
 
@@ -381,8 +445,7 @@ public class StockAnalysisService {
      * 获取技术指标
      */
     public Map<String, Object> getTechnicalIndicators(String stockCode) {
-        List<Map<String, Object>> stockData = pythonScriptService.getStockKlineData(stockCode);
-        return pythonScriptService.calculateTechnicalIndicators(stockData);
+        return pythonScriptService.calculateTechnicalIndicatorsDirect(stockCode);
     }
 
     /**
@@ -398,8 +461,7 @@ public class StockAnalysisService {
     public String assessRisk(String stockCode) {
         try {
             // 获取必要数据
-            List<Map<String, Object>> stockData = pythonScriptService.getStockKlineData(stockCode);
-            Map<String, Object> technicalIndicators = pythonScriptService.calculateTechnicalIndicators(stockData);
+            Map<String, Object> technicalIndicators = pythonScriptService.calculateTechnicalIndicatorsDirect(stockCode);
             List<Map<String, Object>> moneyFlowData = pythonScriptService.getMoneyFlowData(stockCode);
             List<Map<String, Object>> marginTradingData = pythonScriptService.getMarginTradingData(stockCode);
 
@@ -441,8 +503,80 @@ public class StockAnalysisService {
         TechnicalIndicators indicators = new TechnicalIndicators();
 
         try {
-            // 从原始数据中提取技术指标
-            // 基于实际的中文字段名数据格式
+            // 处理新的技术指标数据格式
+            if (rawData == null) {
+                log.warn("技术指标数据为空");
+                return indicators;
+            }
+
+            // 检查是否是新的数据格式（包含moving_averages等字段）
+            if (rawData.containsKey("moving_averages") || rawData.containsKey("rsi")) {
+                // 新的数据格式
+                log.debug("使用新的技术指标数据格式");
+                
+                // 设置移动平均线
+                @SuppressWarnings("unchecked")
+                Map<String, Object> movingAverages = (Map<String, Object>) rawData.get("moving_averages");
+                if (movingAverages != null) {
+                    indicators.setMa5(getDoubleValue(movingAverages.get("MA5")));
+                    indicators.setMa10(getDoubleValue(movingAverages.get("MA10")));
+                    indicators.setMa20(getDoubleValue(movingAverages.get("MA20")));
+                    indicators.setMa30(getDoubleValue(movingAverages.get("MA30")));
+                    indicators.setMa60(getDoubleValue(movingAverages.get("MA60")));
+                }
+
+                // 设置布林带
+                @SuppressWarnings("unchecked")
+                Map<String, Object> bollingerBands = (Map<String, Object>) rawData.get("bollinger_bands");
+                if (bollingerBands != null) {
+                    indicators.setBollingerUpper(getDoubleValue(bollingerBands.get("upper_band")));
+                    indicators.setBollingerMiddle(getDoubleValue(bollingerBands.get("middle_band")));
+                    indicators.setBollingerLower(getDoubleValue(bollingerBands.get("lower_band")));
+                }
+
+                // 设置RSI
+                indicators.setRsi(getDoubleValue(rawData.get("rsi")));
+
+                // 设置MACD
+                @SuppressWarnings("unchecked")
+                Map<String, Object> macd = (Map<String, Object>) rawData.get("macd");
+                if (macd != null) {
+                    indicators.setMacd(getDoubleValue(macd.get("macd")));
+                    indicators.setMacdSignal(getDoubleValue(macd.get("signal")));
+                    indicators.setMacdHistogram(getDoubleValue(macd.get("histogram")));
+                }
+
+                // 设置KDJ
+                @SuppressWarnings("unchecked")
+                Map<String, Object> kdj = (Map<String, Object>) rawData.get("kdj");
+                if (kdj != null) {
+                    indicators.setKdjK(getDoubleValue(kdj.get("k")));
+                    indicators.setKdjD(getDoubleValue(kdj.get("d")));
+                    indicators.setKdjJ(getDoubleValue(kdj.get("j")));
+                }
+
+                // 设置成交量指标
+                @SuppressWarnings("unchecked")
+                Map<String, Object> volumeIndicators = (Map<String, Object>) rawData.get("volume_indicators");
+                if (volumeIndicators != null) {
+                    indicators.setVolumeMa(getDoubleValue(volumeIndicators.get("volume_ma")));
+                    indicators.setVolumeRatio(getDoubleValue(volumeIndicators.get("volume_ratio")));
+                }
+
+                // 设置支撑阻力位
+                @SuppressWarnings("unchecked")
+                Map<String, Object> supportResistance = (Map<String, Object>) rawData.get("support_resistance");
+                if (supportResistance != null) {
+                    indicators.setSupport(getDoubleValue(supportResistance.get("support")));
+                    indicators.setResistance(getDoubleValue(supportResistance.get("resistance")));
+                    indicators.setCurrentPrice(getDoubleValue(supportResistance.get("current_price")));
+                }
+
+                log.debug("成功转换新的技术指标数据格式");
+                
+            } else {
+                // 旧的数据格式（兼容性处理）
+                log.debug("使用旧的技术指标数据格式");
             
             // 提取核心指标
             @SuppressWarnings("unchecked")
@@ -461,6 +595,7 @@ public class StockAnalysisService {
                 extractFromRecentDaysData(indicators, recent5DaysIndicators);
             } else {
                 log.warn("未找到近5日指标数据，技术指标将为空");
+                }
             }
             
         } catch (Exception e) {
@@ -468,6 +603,26 @@ public class StockAnalysisService {
         }
         
         return indicators;
+    }
+
+    /**
+     * 安全地获取Double值
+     */
+    private Double getDoubleValue(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Number) {
+            return ((Number) value).doubleValue();
+        }
+        if (value instanceof String) {
+            try {
+                return Double.parseDouble((String) value);
+            } catch (NumberFormatException e) {
+                return null;
+            }
+        }
+        return null;
     }
 
     /**
@@ -616,11 +771,11 @@ public class StockAnalysisService {
             for (Map<String, Object> item : flowData) {
                 String fundType = (String) item.get("资金类型");
                 if ("主力".equals(fundType)) {
-                    Object netInflowObj = item.get("净流入额");
+                    Object netInflowObj = item.get("净流入额（万元）");
                     if (netInflowObj instanceof Number) {
                         dailyFlow.setMainInflow(((Number) netInflowObj).doubleValue());
                     }
-                    Object ratioObj = item.get("净占比");
+                    Object ratioObj = item.get("净占比（%）");
                     if (ratioObj instanceof Number) {
                         dailyFlow.setInflowRatio(((Number) ratioObj).doubleValue());
                     }
@@ -776,25 +931,23 @@ public class StockAnalysisService {
     
 
     
+
+
     /**
-     * 安全地获取Double值
+     * 从Map中提取股票名称
      */
-    private Double getDoubleValue(Object value) {
-        if (value == null) {
+    private String extractStockName(Map<String, Object> data) {
+        if (data == null) {
             return null;
         }
-        
-        if (value instanceof Number) {
-            return ((Number) value).doubleValue();
-        } else if (value instanceof String) {
-            try {
-                return Double.parseDouble((String) value);
-            } catch (NumberFormatException e) {
-                log.warn("无法转换字符串为Double: {}", value);
-                return null;
-            }
+        String stockName = null;
+        if (data.get("stockName") instanceof String) {
+            stockName = (String) data.get("stockName");
+        } else if (data.get("name") instanceof String) {
+            stockName = (String) data.get("name");
+        } else if (data.get("companyName") instanceof String) {
+            stockName = (String) data.get("companyName");
         }
-        
-        return null;
+        return stockName;
     }
 }

@@ -5,6 +5,7 @@ import com.stockanalysis.model.StockRecommendationDetail;
 import com.stockanalysis.service.DailyRecommendationService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
@@ -17,6 +18,7 @@ import java.util.Map;
 @Slf4j
 @RestController
 @RequestMapping("/api/recommendations")
+@Validated
 @CrossOrigin(origins = "*")
 public class DailyRecommendationController {
 
@@ -77,62 +79,6 @@ public class DailyRecommendationController {
             Map<String, Object> response = new HashMap<>();
             response.put("success", false);
             response.put("message", "获取推荐摘要失败: " + e.getMessage());
-            
-            return ResponseEntity.ok(response);
-        }
-    }
-
-    /**
-     * 获取热门推荐
-     */
-    @GetMapping("/hot")
-    public ResponseEntity<Map<String, Object>> getHotRecommendations() {
-        try {
-            log.info("获取热门推荐");
-            
-            List<StockRecommendationDetail> hotStocks = dailyRecommendationService.getHotRecommendations();
-            
-            Map<String, Object> response = new HashMap<>();
-            response.put("success", true);
-            response.put("data", hotStocks);
-            response.put("message", "获取热门推荐成功");
-            
-            return ResponseEntity.ok(response);
-            
-        } catch (Exception e) {
-            log.error("获取热门推荐失败: {}", e.getMessage(), e);
-            
-            Map<String, Object> response = new HashMap<>();
-            response.put("success", false);
-            response.put("message", "获取热门推荐失败: " + e.getMessage());
-            
-            return ResponseEntity.ok(response);
-        }
-    }
-
-    /**
-     * 按领域获取推荐
-     */
-    @GetMapping("/sector/{sector}")
-    public ResponseEntity<Map<String, Object>> getRecommendationsBySector(@PathVariable String sector) {
-        try {
-            log.info("获取{}领域推荐", sector);
-            
-            List<StockRecommendationDetail> sectorStocks = dailyRecommendationService.getRecommendationsBySector(sector);
-            
-            Map<String, Object> response = new HashMap<>();
-            response.put("success", true);
-            response.put("data", sectorStocks);
-            response.put("message", "获取" + sector + "领域推荐成功");
-            
-            return ResponseEntity.ok(response);
-            
-        } catch (Exception e) {
-            log.error("获取{}领域推荐失败: {}", sector, e.getMessage(), e);
-            
-            Map<String, Object> response = new HashMap<>();
-            response.put("success", false);
-            response.put("message", "获取" + sector + "领域推荐失败: " + e.getMessage());
             
             return ResponseEntity.ok(response);
         }
@@ -201,34 +147,6 @@ public class DailyRecommendationController {
     }
 
     /**
-     * 获取推荐统计信息
-     */
-    @GetMapping("/statistics")
-    public ResponseEntity<Map<String, Object>> getRecommendationStatistics() {
-        try {
-            log.info("获取推荐统计信息");
-            
-            Map<String, Object> statistics = dailyRecommendationService.getRecommendationStatistics();
-            
-            Map<String, Object> response = new HashMap<>();
-            response.put("success", true);
-            response.put("data", statistics);
-            response.put("message", "获取推荐统计信息成功");
-            
-            return ResponseEntity.ok(response);
-            
-        } catch (Exception e) {
-            log.error("获取推荐统计信息失败: {}", e.getMessage(), e);
-            
-            Map<String, Object> response = new HashMap<>();
-            response.put("success", false);
-            response.put("message", "获取推荐统计信息失败: " + e.getMessage());
-            
-            return ResponseEntity.ok(response);
-        }
-    }
-
-    /**
      * 获取指定日期的推荐
      */
     @GetMapping("/date/{date}")
@@ -284,6 +202,67 @@ public class DailyRecommendationController {
             Map<String, Object> response = new HashMap<>();
             response.put("success", false);
             response.put("message", "刷新推荐失败: " + e.getMessage());
+            
+            return ResponseEntity.ok(response);
+        }
+    }
+
+    /**
+     * 获取可用的推荐日期列表
+     */
+    @GetMapping("/dates")
+    public ResponseEntity<Map<String, Object>> getAvailableDates() {
+        try {
+            log.info("获取可用的推荐日期列表");
+            
+            List<String> dates = dailyRecommendationService.getAvailableDates();
+            
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("data", dates);
+            response.put("message", "获取可用日期列表成功");
+            
+            return ResponseEntity.ok(response);
+            
+        } catch (Exception e) {
+            log.error("获取可用日期列表失败: {}", e.getMessage(), e);
+            
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", false);
+            response.put("message", "获取可用日期列表失败: " + e.getMessage());
+            
+            return ResponseEntity.ok(response);
+        }
+    }
+
+    /**
+     * 根据日期获取推荐数据（返回格式化的摘要数据）
+     */
+    @GetMapping("/by-date/{date}")
+    public ResponseEntity<Map<String, Object>> getRecommendationByDateFormatted(@PathVariable String date) {
+        try {
+            log.info("获取{}的推荐摘要", date);
+            
+            Map<String, Object> summary = dailyRecommendationService.getRecommendationSummaryByDate(date);
+            
+            Map<String, Object> response = new HashMap<>();
+            if (summary != null) {
+                response.put("success", true);
+                response.put("data", summary);
+                response.put("message", "获取推荐摘要成功");
+            } else {
+                response.put("success", false);
+                response.put("message", "未找到该日期的推荐");
+            }
+            
+            return ResponseEntity.ok(response);
+            
+        } catch (Exception e) {
+            log.error("获取{}的推荐摘要失败: {}", date, e.getMessage(), e);
+            
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", false);
+            response.put("message", "获取推荐摘要失败: " + e.getMessage());
             
             return ResponseEntity.ok(response);
         }

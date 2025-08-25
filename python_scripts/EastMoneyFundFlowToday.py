@@ -129,4 +129,4 @@ if __name__ == "__main__":
             "error": "获取资金流向数据失败",
             "message": str(e)
         }
-        print(json.dumps(error_result, ensure_ascii=False))
+        print(json.dumps(error_result, ensure_ascii=False), file=sys.stderr)

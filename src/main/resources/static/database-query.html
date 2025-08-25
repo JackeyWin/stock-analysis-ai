@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>数据库查询工具</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .section {
+            margin-bottom: 30px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .section h3 {
+            margin-top: 0;
+            color: #555;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        input, textarea, select {
+            width: 100%;
+            padding: 8px;
+            margin: 5px 0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        textarea {
+            height: 100px;
+            resize: vertical;
+        }
+        .result {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 15px;
+            margin-top: 10px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .error {
+            background-color: #f8d7da;
+            border-color: #f5c6cb;
+            color: #721c24;
+        }
+        .success {
+            background-color: #d4edda;
+            border-color: #c3e6cb;
+            color: #155724;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .stat-item {
+            background-color: #e9ecef;
+            padding: 10px;
+            border-radius: 4px;
+            text-align: center;
+        }
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #007bff;
+        }
+        .stat-label {
+            font-size: 12px;
+            color: #6c757d;
+        }
+    </style>
+</head>
+<body>
+    <h1>📊 数据库查询工具</h1>
+
+    <!-- 数据库统计信息 -->
+    <div class="container">
+        <div class="section">
+            <h3>📈 数据库统计信息</h3>
+            <button onclick="loadDatabaseStats()">获取统计信息</button>
+            <div id="statsResult" class="result" style="display: none;"></div>
+        </div>
+    </div>
+
+    <!-- 表管理 -->
+    <div class="container">
+        <div class="section">
+            <h3>📋 表管理</h3>
+            <button onclick="loadTables()">获取所有表</button>
+            <div id="tablesResult" class="result" style="display: none;"></div>
+        </div>
+    </div>
+
+    <!-- 表结构查询 -->
+    <div class="container">
+        <div class="section">
+            <h3>🔍 表结构查询</h3>
+            <input type="text" id="tableName" placeholder="输入表名">
+            <button onclick="loadTableStructure()">获取表结构</button>
+            <div id="structureResult" class="result" style="display: none;"></div>
+        </div>
+    </div>
+
+    <!-- 表数据查询 -->
+    <div class="container">
+        <div class="section">
+            <h3>📄 表数据查询</h3>
+            <input type="text" id="dataTableName" placeholder="输入表名">
+            <input type="number" id="page" placeholder="页码" value="1" min="1">
+            <input type="number" id="size" placeholder="每页大小" value="10" min="1" max="100">
+            <button onclick="loadTableData()">获取表数据</button>
+            <div id="dataResult" class="result" style="display: none;"></div>
+        </div>
+    </div>
+
+    <!-- 自定义SQL查询 -->
+    <div class="container">
+        <div class="section">
+            <h3>⚡ 自定义SQL查询</h3>
+            <textarea id="sqlQuery" placeholder="输入SELECT查询语句，例如：SELECT * FROM your_table LIMIT 10"></textarea>
+            <button onclick="executeQuery()">执行查询</button>
+            <div id="queryResult" class="result" style="display: none;"></div>
+        </div>
+    </div>
+
+    <!-- 数据管理 -->
+    <div class="container">
+        <div class="section">
+            <h3>🗑️ 数据管理</h3>
+            <button onclick="clearDailyRecommendationData()" style="background-color: #dc3545;">删除所有DailyRecommendation数据</button>
+            <div id="clearResult" class="result" style="display: none;"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '/api/database';
+
+        // 显示结果
+        function showResult(elementId, data, isError = false) {
+            const element = document.getElementById(elementId);
+            element.style.display = 'block';
+            element.className = 'result ' + (isError ? 'error' : 'success');
+            
+            if (typeof data === 'object') {
+                element.innerHTML = '<pre>' + JSON.stringify(data, null, 2) + '</pre>';
+            } else {
+                element.innerHTML = data;
+            }
+        }
+
+        // 隐藏结果
+        function hideResult(elementId) {
+            document.getElementById(elementId).style.display = 'none';
+        }
+
+        // 获取数据库统计信息
+        async function loadDatabaseStats() {
+            try {
+                hideResult('statsResult');
+                const response = await fetch(API_BASE + '/stats');
+                const result = await response.json();
+                
+                if (result.success) {
+                    const stats = result.data;
+                    let html = '<div class="stats-grid">';
+                    html += `<div class="stat-item"><div class="stat-value">${stats.totalTables}</div><div class="stat-label">总表数</div></div>`;
+                    
+                    if (stats.databaseVersion) {
+                        html += `<div class="stat-item"><div class="stat-value">${stats.databaseVersion.split(' ')[0]}</div><div class="stat-label">数据库版本</div></div>`;
+                    }
+                    
+                    html += '</div>';
+                    
+                    if (stats.tableCounts) {
+                        html += '<h4>表记录数统计：</h4><table><tr><th>表名</th><th>记录数</th></tr>';
+                        for (const [table, count] of Object.entries(stats.tableCounts)) {
+                            html += `<tr><td>${table}</td><td>${count}</td></tr>`;
+                        }
+                        html += '</table>';
+                    }
+                    
+                    document.getElementById('statsResult').innerHTML = html;
+                    document.getElementById('statsResult').style.display = 'block';
+                    document.getElementById('statsResult').className = 'result success';
+                } else {
+                    showResult('statsResult', result.message, true);
+                }
+            } catch (error) {
+                showResult('statsResult', '获取统计信息失败: ' + error.message, true);
+            }
+        }
+
+        // 获取所有表
+        async function loadTables() {
+            try {
+                hideResult('tablesResult');
+                const response = await fetch(API_BASE + '/tables');
+                const result = await response.json();
+                
+                if (result.success) {
+                    const tables = result.data;
+                    let html = '<h4>数据库中的表：</h4><ul>';
+                    tables.forEach(table => {
+                        html += `<li><strong>${table}</strong> <button onclick="loadTableStructureByName('${table}')">查看结构</button> <button onclick="loadTableDataByName('${table}')">查看数据</button></li>`;
+                    });
+                    html += '</ul>';
+                    
+                    document.getElementById('tablesResult').innerHTML = html;
+                    document.getElementById('tablesResult').style.display = 'block';
+                    document.getElementById('tablesResult').className = 'result success';
+                } else {
+                    showResult('tablesResult', result.message, true);
+                }
+            } catch (error) {
+                showResult('tablesResult', '获取表列表失败: ' + error.message, true);
+            }
+        }
+
+        // 获取表结构
+        async function loadTableStructure() {
+            const tableName = document.getElementById('tableName').value.trim();
+            if (!tableName) {
+                alert('请输入表名');
+                return;
+            }
+            await loadTableStructureByName(tableName);
+        }
+
+        async function loadTableStructureByName(tableName) {
+            try {
+                hideResult('structureResult');
+                const response = await fetch(API_BASE + '/table/' + encodeURIComponent(tableName) + '/structure');
+                const result = await response.json();
+                
+                if (result.success) {
+                    const structure = result.data;
+                    let html = `<h4>表 "${tableName}" 的结构：</h4><table><tr><th>列名</th><th>数据类型</th><th>大小</th><th>可空</th><th>默认值</th><th>备注</th></tr>`;
+                    structure.forEach(col => {
+                        html += `<tr><td>${col.columnName}</td><td>${col.dataType}</td><td>${col.columnSize}</td><td>${col.nullable === 1 ? '是' : '否'}</td><td>${col.columnDefault || '-'}</td><td>${col.remarks || '-'}</td></tr>`;
+                    });
+                    html += '</table>';
+                    
+                    document.getElementById('structureResult').innerHTML = html;
+                    document.getElementById('structureResult').style.display = 'block';
+                    document.getElementById('structureResult').className = 'result success';
+                } else {
+                    showResult('structureResult', result.message, true);
+                }
+            } catch (error) {
+                showResult('structureResult', '获取表结构失败: ' + error.message, true);
+            }
+        }
+
+        // 获取表数据
+        async function loadTableData() {
+            const tableName = document.getElementById('dataTableName').value.trim();
+            const page = parseInt(document.getElementById('page').value) || 1;
+            const size = parseInt(document.getElementById('size').value) || 10;
+            
+            if (!tableName) {
+                alert('请输入表名');
+                return;
+            }
+            await loadTableDataByName(tableName, page, size);
+        }
+
+        async function loadTableDataByName(tableName, page = 1, size = 10) {
+            try {
+                hideResult('dataResult');
+                const response = await fetch(`${API_BASE}/table/${encodeURIComponent(tableName)}/data?page=${page}&size=${size}`);
+                const result = await response.json();
+                
+                if (result.success) {
+                    const data = result.data;
+                    let html = `<h4>表 "${tableName}" 的数据 (第${data.page}页，共${data.totalPages}页，总计${data.total}条记录)：</h4>`;
+                    
+                    if (data.data && data.data.length > 0) {
+                        const columns = Object.keys(data.data[0]);
+                        html += '<table><tr>';
+                        columns.forEach(col => html += `<th>${col}</th>`);
+                        html += '</tr>';
+                        
+                        data.data.forEach(row => {
+                            html += '<tr>';
+                            columns.forEach(col => {
+                                const value = row[col];
+                                html += `<td>${value !== null && value !== undefined ? value : '-'}</td>`;
+                            });
+                            html += '</tr>';
+                        });
+                        html += '</table>';
+                        
+                        // 分页导航
+                        if (data.totalPages > 1) {
+                            html += '<div style="margin-top: 10px;">';
+                            if (data.page > 1) {
+                                html += `<button onclick="loadTableDataByName('${tableName}', ${data.page - 1}, ${size})">上一页</button>`;
+                            }
+                            html += ` 第${data.page}页，共${data.totalPages}页 `;
+                            if (data.page < data.totalPages) {
+                                html += `<button onclick="loadTableDataByName('${tableName}', ${data.page + 1}, ${size})">下一页</button>`;
+                            }
+                            html += '</div>';
+                        }
+                    } else {
+                        html += '<p>表中没有数据</p>';
+                    }
+                    
+                    document.getElementById('dataResult').innerHTML = html;
+                    document.getElementById('dataResult').style.display = 'block';
+                    document.getElementById('dataResult').className = 'result success';
+                } else {
+                    showResult('dataResult', result.message, true);
+                }
+            } catch (error) {
+                showResult('dataResult', '获取表数据失败: ' + error.message, true);
+            }
+        }
+
+        // 执行自定义查询
+        async function executeQuery() {
+            const sql = document.getElementById('sqlQuery').value.trim();
+            if (!sql) {
+                alert('请输入SQL查询语句');
+                return;
+            }
+            
+            try {
+                hideResult('queryResult');
+                const response = await fetch(API_BASE + '/query', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ sql: sql })
+                });
+                const result = await response.json();
+                
+                if (result.success) {
+                    const data = result.data;
+                    let html = `<h4>查询结果 (共${result.count}条记录)：</h4>`;
+                    
+                    if (data && data.length > 0) {
+                        const columns = Object.keys(data[0]);
+                        html += '<table><tr>';
+                        columns.forEach(col => html += `<th>${col}</th>`);
+                        html += '</tr>';
+                        
+                        data.forEach(row => {
+                            html += '<tr>';
+                            columns.forEach(col => {
+                                const value = row[col];
+                                html += `<td>${value !== null && value !== undefined ? value : '-'}</td>`;
+                            });
+                            html += '</tr>';
+                        });
+                        html += '</table>';
+                    } else {
+                        html += '<p>查询结果为空</p>';
+                    }
+                    
+                    document.getElementById('queryResult').innerHTML = html;
+                    document.getElementById('queryResult').style.display = 'block';
+                    document.getElementById('queryResult').className = 'result success';
+                } else {
+                    showResult('queryResult', result.message, true);
+                }
+            } catch (error) {
+                showResult('queryResult', '执行查询失败: ' + error.message, true);
+            }
+        }
+
+        // 删除所有DailyRecommendation数据
+        async function clearDailyRecommendationData() {
+            if (!confirm('⚠️ 确定要删除所有DailyRecommendation数据吗？这将删除所有每日推荐和股票推荐详情数据！')) {
+                return;
+            }
+            
+            try {
+                hideResult('clearResult');
+                const response = await fetch(API_BASE + '/daily-recommendation/clear', {
+                    method: 'DELETE'
+                });
+                const result = await response.json();
+                
+                if (result.success) {
+                    const deletedCount = result.deletedCount;
+                    let html = `<h4>删除成功！</h4>`;
+                    html += `<p>总共删除了 ${deletedCount} 条记录</p>`;
+                    html += `<p>消息: ${result.message}</p>`;
+                    
+                    document.getElementById('clearResult').innerHTML = html;
+                    document.getElementById('clearResult').style.display = 'block';
+                    document.getElementById('clearResult').className = 'result success';
+                    
+                    // 自动刷新统计信息
+                    setTimeout(() => {
+                        loadDatabaseStats();
+                    }, 1000);
+                } else {
+                    showResult('clearResult', result.message, true);
+                }
+            } catch (error) {
+                showResult('clearResult', '删除失败: ' + error.message, true);
+            }
+        }
+
+        // 页面加载时自动获取统计信息
+        window.onload = function() {
+            loadDatabaseStats();
+        };
+    </script>
+</body>
+</html>

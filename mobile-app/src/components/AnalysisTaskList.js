@@ -101,27 +101,15 @@ const AnalysisTaskList = React.forwardRef(({ stockCode, onTaskComplete, onViewRe
     return [];
   };
 
-  // 从后端获取任务状态（根据设备指纹）
-  const fetchTasksFromBackend = async () => {
-    try {
-      console.log('🔄 尝试从后端获取任务状态...');
-      const tasks = await apiService.current.getUserAnalysisTasks();
-      console.log('🌐 从后端获取到用户任务:', tasks.length, '个');
-      return tasks;
-    } catch (error) {
-      console.error('从后端获取任务失败:', error);
-      // 失败时返回空数组，保持应用可用性
-      return [];
-    }
-  };
 
-  // 加载任务（从本地存储和后端）
+
+  // 加载任务（仅从本地存储）
   const loadTasks = async () => {
     setLoading(true);
     try {
       console.log('🔄 开始加载任务...');
       
-      // 首先从本地存储加载
+      // 从本地存储加载
       const localTasks = await loadTasksFromStorage();
       console.log('📱 从本地存储加载到任务:', localTasks.length, '个');
       if (localTasks.length > 0) {
@@ -132,17 +120,8 @@ const AnalysisTaskList = React.forwardRef(({ stockCode, onTaskComplete, onViewRe
         })));
       }
       
-      // 然后尝试从后端获取最新状态
-      const backendTasks = await fetchTasksFromBackend();
-      console.log('🌐 从后端获取到任务:', backendTasks.length, '个');
-      
-      // 合并任务，优先使用后端数据
+      // 直接使用本地存储的任务
       let finalTasks = localTasks;
-      if (backendTasks.length > 0) {
-        // 如果后端有数据，使用后端数据更新本地数据
-        finalTasks = backendTasks;
-        console.log('🔄 使用后端数据更新本地任务');
-      }
       
       console.log('📊 最终任务列表(去重前):', finalTasks.length, '个任务');
       if (finalTasks.length > 0) {

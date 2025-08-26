@@ -1,4 +1,5 @@
 import DeviceFingerprint from '../utils/deviceFingerprint';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 /**
  * 设备服务 - 集成设备指纹到API调用
@@ -97,8 +98,13 @@ class DeviceService {
    */
   static async resetFingerprint() {
     this.deviceFingerprint = null;
-    // 这里可以清除AsyncStorage中的缓存
-    // await AsyncStorage.removeItem('device_fingerprint');
+    // 清除AsyncStorage中的缓存
+    try {
+      await AsyncStorage.removeItem('device_fingerprint');
+      console.log('📱 已清除设备指纹缓存');
+    } catch (error) {
+      console.error('清除设备指纹缓存失败:', error);
+    }
     return await this.initialize();
   }
 

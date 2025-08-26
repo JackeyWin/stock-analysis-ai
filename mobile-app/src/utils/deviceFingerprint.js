@@ -1,6 +1,7 @@
 import { Platform } from 'react-native';
 import * as Constants from 'expo-constants';
 import { getUniqueId } from 'expo-application';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 /**
  * 设备指纹工具类 - 基于浏览器/设备特征生成唯一标识
@@ -57,9 +58,6 @@ class DeviceFingerprint {
         scale: Constants.scale,
         fontScale: Constants.fontScale
       },
-      
-      // 时间信息
-      timestamp: Date.now(),
       
       // 其他特征
       userAgent: this.getUserAgent(),
@@ -119,9 +117,8 @@ class DeviceFingerprint {
       hash = hash & hash; // 转换为32位整数
     }
     
-    // 添加随机数增加唯一性
-    const randomSuffix = Math.random().toString(36).substring(2, 10);
-    return Math.abs(hash).toString(36) + randomSuffix;
+    // 移除随机数后缀，确保相同设备特征生成相同哈希
+    return Math.abs(hash).toString(36);
   }
 
   /**
@@ -149,20 +146,21 @@ class DeviceFingerprint {
    */
   static async getCachedFingerprint() {
     try {
-      // 这里可以集成AsyncStorage进行持久化缓存
-      // import AsyncStorage from '@react-native-async-storage/async-storage';
-      
-      // const cachedFingerprint = await AsyncStorage.getItem('device_fingerprint');
-      // if (cachedFingerprint && this.isValidFingerprint(cachedFingerprint)) {
-      //   return cachedFingerprint;
-      // }
+      // 从持久化缓存中获取设备指纹
+      const cachedFingerprint = await AsyncStorage.getItem('device_fingerprint');
+      if (cachedFingerprint && this.isValidFingerprint(cachedFingerprint)) {
+        console.log('📱 使用缓存的设备指纹');
+        return cachedFingerprint;
+      }
       
       // 生成新的指纹并缓存
       const newFingerprint = await this.generateFingerprint();
-      // await AsyncStorage.setItem('device_fingerprint', newFingerprint);
+      await AsyncStorage.setItem('device_fingerprint', newFingerprint);
+      console.log('📱 生成并缓存新的设备指纹');
       
       return newFingerprint;
     } catch (error) {
+      console.error('设备指纹缓存失败:', error);
       return this.generateFallbackId();
     }
   }

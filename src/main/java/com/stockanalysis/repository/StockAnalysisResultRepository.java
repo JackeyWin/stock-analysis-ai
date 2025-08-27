@@ -77,4 +77,15 @@ public interface StockAnalysisResultRepository extends JpaRepository<StockAnalys
      */
     @Query("DELETE FROM StockAnalysisResultEntity s WHERE s.machineId = :machineId AND s.stockCode = :stockCode")
     void deleteByMachineIdAndStockCode(@Param("machineId") String machineId, @Param("stockCode") String stockCode);
+    
+    /**
+     * 根据股票代码删除所有分析结果
+     */
+    @Query("DELETE FROM StockAnalysisResultEntity s WHERE s.stockCode = :stockCode")
+    void deleteByStockCode(@Param("stockCode") String stockCode);
+    
+    /**
+     * 查找所有分析结果，按分析时间倒序排列
+     */
+    List<StockAnalysisResultEntity> findAllByOrderByAnalysisTimeDesc();
 }

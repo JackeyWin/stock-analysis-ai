@@ -56,6 +56,9 @@ public class StockAnalysisController {
         log.info("收到股票分析请求: {}", request.getStockCode());
         
         try {
+            // 记录分析开始时间
+            log.info("分析开始时间: {}", request.getAnalysisStartTime());
+            
             StockAnalysisResponse response = stockAnalysisService.analyzeStock(request);
             
             if (response.isSuccess()) {
@@ -329,8 +332,8 @@ public class StockAnalysisController {
         log.info("收到获取所有分析任务请求: page={}, size={}", page, size);
         
         try {
-            // 获取所有分析结果
-            List<StockAnalysisResultEntity> allResults = stockAnalysisService.getStockAnalysisResultRepository().findAll();
+            // 获取所有分析结果并按分析时间倒序排列
+            List<StockAnalysisResultEntity> allResults = stockAnalysisService.getStockAnalysisResultRepository().findAllByOrderByAnalysisTimeDesc();
             
             // 实现简单的分页逻辑
             int total = allResults.size();

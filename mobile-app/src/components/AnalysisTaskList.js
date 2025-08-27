@@ -564,9 +564,12 @@ const AnalysisTaskList = React.forwardRef(({ stockCode, onTaskComplete, onViewRe
       }
     };
 
-    const formatDuration = (task) => {
-      if (!task?.startTime) return '';
-      const startTs = new Date(task.startTime).getTime();
+    const formatDuration = (task, analysisTime) => {
+      // 优先使用analysisTime作为开始时间，如果没有则使用startTime
+      const startTime = analysisTime || task?.startTime;
+      if (!startTime) return '';
+      
+      const startTs = new Date(startTime).getTime();
       const endTs = task.endTime ? new Date(task.endTime).getTime() : Date.now();
       const duration = Math.max(0, endTs - startTs);
       const minutes = Math.floor(duration / 60000);
@@ -604,12 +607,6 @@ const AnalysisTaskList = React.forwardRef(({ stockCode, onTaskComplete, onViewRe
           </View>
         </View>
 
-        <Text style={styles.messageText}>
-          分析时间: {formatTime(item.analysis_time || item.timestamp)}
-        </Text>
-
-
-
         <View style={styles.progressContainer}>
           <View style={styles.progressBar}>
             <View 
@@ -629,7 +626,7 @@ const AnalysisTaskList = React.forwardRef(({ stockCode, onTaskComplete, onViewRe
 
         <View style={styles.taskFooter}>
           <Text style={styles.durationText}>
-            {item.status === 'completed' ? '总耗时 ' : '已用时 '}{formatDuration(item)}
+            {item.status === 'completed' ? '总耗时 ' : '已用时 '}{formatDuration(item, item.analysisTime)}
           </Text>
           
           <View style={styles.actionButtons}>
@@ -658,37 +655,37 @@ const AnalysisTaskList = React.forwardRef(({ stockCode, onTaskComplete, onViewRe
             
             {Platform.OS === 'web' ? (
               <Pressable 
-                style={styles.deleteButton}
-                onPress={() => {
-                  console.log('🖥️ Web平台删除按钮被点击，任务ID:', item.taskId);
-                  Alert.alert(
-                    '确认删除',
-                    '确定要删除这个分析任务吗？',
-                    [
-                      { text: '取消', style: 'cancel' },
-                      { text: '删除', style: 'destructive', onPress: () => {
-                        console.log('✅ Web平台确认删除任务:', item.taskId);
-                        removeTask(item.taskId);
-                      }}
-                    ]
-                  );
-                }}
-              >
+                  style={styles.deleteButton}
+                  onPress={() => {
+                    console.log('🖥️ Web平台删除按钮被点击，任务ID:', item.id || item.taskId);
+                    Alert.alert(
+                      '确认删除',
+                      '确定要删除这个分析任务吗？',
+                      [
+                        { text: '取消', style: 'cancel' },
+                        { text: '删除', style: 'destructive', onPress: () => {
+                          console.log('✅ Web平台确认删除任务:', item.id || item.taskId);
+                          removeTask(item.id || item.taskId);
+                        }}
+                      ]
+                    );
+                  }}
+                >
                 <Ionicons name="trash-outline" size={16} color="#FF3B30" />
               </Pressable>
             ) : (
               <TouchableOpacity 
                 style={styles.deleteButton}
                 onPress={() => {
-                  console.log('🗑️ 删除按钮被点击，任务ID:', item.taskId);
+                  console.log('🗑️ 删除按钮被点击，任务ID:', item.id || item.taskId);
                   Alert.alert(
                     '确认删除',
                     '确定要删除这个分析任务吗？',
                     [
                       { text: '取消', style: 'cancel' },
                       { text: '删除', style: 'destructive', onPress: () => {
-                        console.log('✅ 确认删除任务:', item.taskId);
-                        removeTask(item.taskId);
+                        console.log('✅ 确认删除任务:', item.id || item.taskId);
+                        removeTask(item.id || item.taskId);
                       }}
                     ]
                   );
@@ -734,10 +731,13 @@ const AnalysisTaskList = React.forwardRef(({ stockCode, onTaskComplete, onViewRe
       }
     };
 
-    const formatDuration = (task) => {
-      if (!task?.startTime) return '';
-      const startTs = new Date(task.startTime).getTime();
-      const endTs = task.endTime ? new Date(task.endTime).getTime() : Date.now();
+    const formatDuration = (task, analysisTime) => {
+      // 优先使用analysisTime作为开始时间，如果没有则使用startTime
+      const startTime = analysisTime || task?.startTime;
+      if (!startTime) return '';
+      
+      const startTs = new Date(startTime).getTime();
+      const endTs = task.endTime ? new Date(task.endTime).getTime() : task.createdAt ? new Date(task.createdAt).getTime() : Date.now;
       const duration = Math.max(0, endTs - startTs);
       const minutes = Math.floor(duration / 60000);
       const seconds = Math.floor((duration % 60000) / 1000);
@@ -775,7 +775,7 @@ const AnalysisTaskList = React.forwardRef(({ stockCode, onTaskComplete, onViewRe
         </View>
 
         <Text style={styles.messageText}>
-          分析时间: {formatTime(item.analysis_time || item.timestamp)}
+          分析时间: {formatTime(item.analysisTime || item.analysis_time || item.timestamp)}
         </Text>
 
         {item.result && (
@@ -789,7 +789,7 @@ const AnalysisTaskList = React.forwardRef(({ stockCode, onTaskComplete, onViewRe
                 <Pressable 
                   style={styles.viewButton}
                   onPress={() => {
-                    console.log('🖥️ Web平台查看所有分析结果按钮被点击，任务ID:', item.taskId);
+                    console.log('🖥️ Web平台查看所有分析结果按钮被点击，任务ID:', item.id || item.taskId);
                     onViewResult && onViewResult(item);
                   }}
                 >
@@ -809,7 +809,7 @@ const AnalysisTaskList = React.forwardRef(({ stockCode, onTaskComplete, onViewRe
           </View>
         )}
 
-        <View style={styles.progressContainer}>
+        {/* <View style={styles.progressContainer}>
           <View style={styles.progressBar}>
             <View 
               style={[
@@ -824,11 +824,11 @@ const AnalysisTaskList = React.forwardRef(({ stockCode, onTaskComplete, onViewRe
           <Text style={styles.progressText}>{item.progress || 0}%</Text>
         </View>
 
-        <Text style={styles.messageText}>{item.message || '准备中...'}</Text>
+        <Text style={styles.messageText}>{item.message || '准备中...'}</Text> */}
 
         <View style={styles.taskFooter}>
           <Text style={styles.durationText}>
-            {item.status === 'completed' ? '总耗时 ' : '已用时 '}{formatDuration(item)}
+            {item.status === 'completed' ? '总耗时 ' : '已用时 '}{formatDuration(item, item.analysisTime)}
           </Text>
           
           <View style={styles.actionButtons}>
@@ -837,7 +837,7 @@ const AnalysisTaskList = React.forwardRef(({ stockCode, onTaskComplete, onViewRe
                 <Pressable 
                   style={styles.viewButton}
                   onPress={() => {
-                    console.log('🖥️ Web平台查看结果按钮被点击，任务ID:', item.taskId);
+                    console.log('🖥️ Web平台查看结果按钮被点击，任务ID:', item.id || item.taskId);
                     onViewResult && onViewResult(item);
                   }}
                 >
@@ -855,19 +855,19 @@ const AnalysisTaskList = React.forwardRef(({ stockCode, onTaskComplete, onViewRe
               )
             )}
             
-            {Platform.OS === 'web' ? (
+            {/* {Platform.OS === 'web' ? (
               <Pressable 
                 style={styles.deleteButton}
                 onPress={() => {
-                  console.log('🖥️ Web平台删除按钮被点击，任务ID:', item.taskId);
+                  console.log('🖥️ Web平台删除按钮被点击，任务ID:', item.id || item.taskId);
                   Alert.alert(
                     '确认删除',
                     '确定要删除这个分析任务吗？',
                     [
                       { text: '取消', style: 'cancel' },
                       { text: '删除', style: 'destructive', onPress: () => {
-                        console.log('✅ Web平台确认删除任务:', item.taskId);
-                        removeTask(item.taskId);
+                        console.log('✅ Web平台确认删除任务:', item.id || item.task极Id);
+                        removeTask(item.id || item.taskId);
                       }}
                     ]
                   );
@@ -879,15 +879,15 @@ const AnalysisTaskList = React.forwardRef(({ stockCode, onTaskComplete, onViewRe
               <TouchableOpacity 
                 style={styles.deleteButton}
                 onPress={() => {
-                  console.log('🗑️ 删除按钮被点击，任务ID:', item.taskId);
+                  console.log('🗑️ 删除按钮被点击，任务ID:', item.id || item.taskId);
                   Alert.alert(
                     '确认删除',
                     '确定要删除这个分析任务吗？',
                     [
                       { text: '取消', style: 'cancel' },
                       { text: '删除', style: 'destructive', onPress: () => {
-                        console.log('✅ 确认删除任务:', item.taskId);
-                        removeTask(item.taskId);
+                        console.log('✅ 确认删除任务:', item.id || item.taskId);
+                        removeTask(item.id || item.taskId);
                       }}
                     ]
                   );
@@ -896,7 +896,7 @@ const AnalysisTaskList = React.forwardRef(({ stockCode, onTaskComplete, onViewRe
               >
                 <Ionicons name="trash-outline" size={16} color="#FF3B30" />
               </TouchableOpacity>
-            )}
+            )} */}
           </View>
         </View>
       </View>
@@ -931,7 +931,7 @@ const AnalysisTaskList = React.forwardRef(({ stockCode, onTaskComplete, onViewRe
         onEndReached={showAllAnalyses && hasMoreAnalyses ? onLoadMoreAnalyses : undefined}
         onEndReachedThreshold={showAllAnalyses ? 0.5 : undefined}
         ListFooterComponent={() => {
-          if (showAllAnalyses && false) {
+          if (showAllAnalyses) {
             if (loadingAllAnalyses) {
               return (
                 <View style={{ padding: 20, alignItems: 'center' }}>

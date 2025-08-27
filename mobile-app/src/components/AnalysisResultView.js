@@ -11,29 +11,31 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 
 const AnalysisResultView = ({ result, stockCode, onClose }) => {
+  // 处理传入的task对象（包含result字段）或直接传入result
+  const actualResult = result?.result || result;
   // 默认展开"公司基本面分析"、"行业趋势和政策导向"、"操作策略"、"盘面分析"
   const [expandedSections, setExpandedSections] = useState(new Set(['companyFundamentalAnalysis', 'industryPolicyOrientation', 'operationStrategy', 'intradayOperations']));
 
   // 获取股票名称
   const getStockName = () => {
     // 优先从stockBasic中获取
-    if (result?.stockBasic?.stockName) {
-      return result.stockBasic.stockName;
+    if (actualResult?.stockBasic?.stockName) {
+      return actualResult.stockBasic.stockName;
     }
     
     // 从result的根级别获取
-    if (result?.stockName) {
-      return result.stockName;
+    if (actualResult?.stockName) {
+      return actualResult.stockName;
     }
     
     // 从AI分析结果中获取
-    if (result?.aiAnalysisResult?.stockName) {
-      return result.aiAnalysisResult.stockName;
+    if (actualResult?.aiAnalysisResult?.stockName) {
+      return actualResult.aiAnalysisResult.stockName;
     }
     
     // 从AI分析结果中获取
-    if (result?.aiAnalysis?.stockName) {
-      return result.aiAnalysis.stockName;
+    if (actualResult?.aiAnalysis?.stockName) {
+      return actualResult.aiAnalysis.stockName;
     }
     
     // 如果都没有，返回空字符串
@@ -42,12 +44,12 @@ const AnalysisResultView = ({ result, stockCode, onClose }) => {
 
   // 智能时间显示
   const getTimeDisplay = () => {
-    if (!result?.timestamp) {
+    if (!actualResult?.analysisTime) {
       return '刚刚';
     }
     
     const now = new Date();
-    const analysisTime = new Date(result.timestamp);
+    const analysisTime = new Date(actualResult.analysisTime);
     const diffMs = now - analysisTime;
     const diffMinutes = Math.floor(diffMs / (1000 * 60));
     
@@ -80,17 +82,17 @@ const AnalysisResultView = ({ result, stockCode, onClose }) => {
       let shareContent = '';
       
       // 尝试获取完整的AI分析内容
-      if (result?.aiAnalysisResult?.fullAnalysis) {
-        shareContent = result.aiAnalysisResult.fullAnalysis;
-      } else if (result?.aiAnalysis?.fullAnalysis) {
-        shareContent = result.aiAnalysis.fullAnalysis;
-      } else if (result?.fullAnalysis) {
-        shareContent = result.fullAnalysis;
+      if (actualResult?.aiAnalysisResult?.fullAnalysis) {
+        shareContent = actualResult.aiAnalysisResult.fullAnalysis;
+      } else if (actualResult?.aiAnalysis?.fullAnalysis) {
+        shareContent = actualResult.aiAnalysis.fullAnalysis;
+      } else if (actualResult?.fullAnalysis) {
+        shareContent = actualResult.fullAnalysis;
       } else {
         // 如果没有完整内容，使用摘要
-        shareContent = result?.aiAnalysisResult?.summary || 
-                      result?.aiAnalysis?.summary || 
-                      result?.summary || 
+        shareContent = actualResult?.aiAnalysisResult?.summary || 
+                      actualResult?.aiAnalysis?.summary || 
+                      actualResult?.summary || 
                       '暂无分析结果';
       }
       
@@ -216,7 +218,7 @@ const AnalysisResultView = ({ result, stockCode, onClose }) => {
 
   // 提取AI分析结果的关键部分 - 优先使用aiAnalysisResult字段，排除fullAnalysis
   const aiAnalysis = (() => {
-    const analysis = result?.aiAnalysisResult || result?.aiAnalysis || result?.analysis || {};
+    const analysis = actualResult?.aiAnalysisResult || actualResult?.aiAnalysis || actualResult?.analysis || actualResult || {};
     if (typeof analysis === 'object' && analysis !== null) {
       // 创建一个新对象，排除fullAnalysis字段
       const { fullAnalysis, ...cleanAnalysis } = analysis;
@@ -1202,7 +1204,10 @@ const AnalysisResultView = ({ result, stockCode, onClose }) => {
           const contentNode = key === 'operationStrategy' 
             ? renderOperationStrategy(value)
             : renderFormattedContent(value);
-          sections.push({ title, content: contentNode, key: sectionKey });
+            
+          if (titleMap[key]) {
+            sections.push({ title, content: contentNode, key: sectionKey });
+          }
         }
       });
     }
@@ -1270,7 +1275,7 @@ const AnalysisResultView = ({ result, stockCode, onClose }) => {
           </View>
           {/* 显示分析时间，优先使用analysis_time字段 */}
           <Text style={styles.analysisTime}>
-            {result?.analysis_time ? new Date(result.analysis_time).toLocaleString('zh-CN') : getTimeDisplay()}
+            {actualResult?.analysis_time ? new Date(actualResult.analysis_time).toLocaleString('zh-CN') : getTimeDisplay()}
           </Text>
         </View>
         
@@ -1311,16 +1316,16 @@ const AnalysisResultView = ({ result, stockCode, onClose }) => {
              {/* 尝试显示result中的其他可能字段 */}
              {result && typeof result === 'object' && (
                <>
-                 {result.summary && renderSection(
+                 {actualResult.summary && renderSection(
                    '分析摘要', 
-                   result.summary, 
+                   actualResult.summary, 
                    'result_summary', 
                    'document-outline'
                  )}
                  
-                 {result.recommendation && renderSection(
+                 {actualResult.recommendation && renderSection(
                    '投资建议', 
-                   renderRecommendation(result.recommendation), 
+                   renderRecommendation(actualResult.recommendation), 
                    'result_recommendation', 
                    'trending-up-outline'
                  )}
@@ -1328,7 +1333,7 @@ const AnalysisResultView = ({ result, stockCode, onClose }) => {
              )}
              
              {/* 如果什么都没有，显示提示信息 */}
-             {!aiAnalysis.summary && !result?.summary && !result?.recommendation && (
+             {!aiAnalysis.summary && !actualResult?.summary && !actualResult?.recommendation && (
                <View style={styles.section}>
                  <View style={styles.sectionHeader}>
                    <View style={styles.sectionTitleContainer}>

@@ -29,6 +29,9 @@ import java.util.Map;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.HashMap;
+import org.springframework.http.HttpStatus;
+import java.util.Collections;
 
 /**
  * 股票分析API控制器
@@ -370,6 +373,188 @@ public class StockAnalysisController {
     }
     
     /**
+     * AI详细分析股票数据并生成策略推荐
+     */
+        /**
+     * 启动AI详细分析（异步）
+     */
+    @PostMapping("/ai-detailed/{stockCode}/start")
+    public ResponseEntity<Map<String, Object>> startAIDetailedAnalysis(@PathVariable String stockCode) {
+        try {
+            log.info("启动股票 {} 的AI详细分析", stockCode);
+            
+            // 生成分析任务ID
+            String taskId = "ai_analysis_" + stockCode + "_" + System.currentTimeMillis();
+            
+            // 异步启动分析任务
+            stockAnalysisService.startAIDetailedAnalysisAsync(stockCode, taskId);
+            
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("taskId", taskId);
+            response.put("message", "AI详细分析已启动");
+            response.put("status", "PROCESSING");
+            
+            log.info("股票 {} AI详细分析任务已启动，任务ID: {}", stockCode, taskId);
+            return ResponseEntity.ok(response);
+            
+        } catch (Exception e) {
+            log.error("启动股票 {} AI详细分析失败: {}", stockCode, e.getMessage(), e);
+            
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("success", false);
+            errorResponse.put("message", "启动AI详细分析失败: " + e.getMessage());
+            errorResponse.put("code", "START_ANALYSIS_ERROR");
+            
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
+        }
+    }
+    
+    /**
+     * 查询AI详细分析状态
+     */
+    @GetMapping("/ai-detailed/status/{taskId}")
+    public ResponseEntity<Map<String, Object>> getAIAnalysisStatus(@PathVariable String taskId) {
+        try {
+            log.info("查询AI详细分析状态，任务ID: {}", taskId);
+            
+            Map<String, Object> status = stockAnalysisService.getAIAnalysisStatus(taskId);
+            
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("data", status);
+            
+            return ResponseEntity.ok(response);
+            
+        } catch (Exception e) {
+            log.error("查询AI详细分析状态失败，任务ID: {}: {}", taskId, e.getMessage(), e);
+            
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("success", false);
+            errorResponse.put("message", "查询分析状态失败: " + e.getMessage());
+            errorResponse.put("code", "STATUS_QUERY_ERROR");
+            
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
+        }
+    }
+    
+    /**
+     * 获取AI详细分析结果（同步，用于兼容性）
+     */
+    @GetMapping("/ai-detailed/{stockCode}")
+    public ResponseEntity<Map<String, Object>> getAIDetailedAnalysis(@PathVariable String stockCode) {
+        try {
+            log.info("开始AI详细分析股票: {}", stockCode);
+
+            Map<String, Object> aiAnalysis = stockAnalysisService.generateAIDetailedAnalysis(stockCode);
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("success", true);
+            response.put("data", aiAnalysis);
+            response.put("message", "AI详细分析完成");
+
+            log.info("股票 {} AI详细分析完成", stockCode);
+            return ResponseEntity.ok(response);
+
+        } catch (Exception e) {
+            log.error("AI详细分析股票 {} 失败: {}", stockCode, e.getMessage(), e);
+
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("success", false);
+            errorResponse.put("message", "AI详细分析失败: " + e.getMessage());
+            errorResponse.put("code", "AI_ANALYSIS_ERROR");
+
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
+        }
+    }
+
+    // ========== 盘中盯盘：启动/停止/状态 ==========
+    @PostMapping("/analysis/monitor/start")
+    public ResponseEntity<Map<String, Object>> startMonitoring(
+            @RequestParam String stockCode,
+            @RequestParam(name = "intervalMinutes") int intervalMinutes,
+            @RequestParam(name = "analysisId", required = false) String analysisId,
+            @RequestParam(name = "machineId", required = false, defaultValue = "default") String machineId) {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            String jobId = stockAnalysisService.startIntradayMonitoring(stockCode, intervalMinutes, analysisId, machineId);
+            resp.put("success", true);
+            resp.put("jobId", jobId);
+            resp.put("message", "盯盘已启动");
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            log.error("启动盯盘失败: {}", e.getMessage(), e);
+            resp.put("success", false);
+            resp.put("message", e.getMessage());
+            return ResponseEntity.ok(resp);
+        }
+    }
+
+    @PostMapping("/analysis/monitor/stop")
+    public ResponseEntity<Map<String, Object>> stopMonitoring(@RequestParam String jobId) {
+        Map<String, Object> resp = new HashMap<>();
+        try {
+            boolean stopped = stockAnalysisService.stopIntradayMonitoring(jobId);
+            resp.put("success", stopped);
+            resp.put("message", stopped ? "盯盘已停止" : "任务不存在或已停止");
+            return ResponseEntity.ok(resp);
+        } catch (Exception e) {
+            log.error("停止盯盘失败: {}", e.getMessage(), e);
+            resp.put("success", false);
+            resp.put("message", e.getMessage());
+            return ResponseEntity.ok(resp);
+        }
+    }
+
+    @GetMapping("/analysis/monitor/status/{jobId}")
+    public ResponseEntity<Map<String, Object>> getMonitoringStatus(@PathVariable String jobId) {
+        try {
+            Map<String, Object> status = stockAnalysisService.getIntradayMonitoringStatus(jobId);
+            return ResponseEntity.ok(Map.of("success", true, "data", status));
+        } catch (Exception e) {
+            log.error("获取盯盘状态失败: {}", e.getMessage(), e);
+            return ResponseEntity.ok(Map.of("success", false, "message", e.getMessage()));
+        }
+    }
+
+    @GetMapping("/analysis/monitor/stock-status/{stockCode}")
+    public ResponseEntity<Map<String, Object>> getStockMonitoringStatus(@PathVariable String stockCode) {
+        try {
+            Map<String, Object> status = stockAnalysisService.getStockMonitoringStatus(stockCode);
+            return ResponseEntity.ok(Map.of("success", true, "data", status));
+        } catch (Exception e) {
+            log.error("获取股票监控状态失败: {}", e.getMessage(), e);
+            return ResponseEntity.ok(Map.of("success", false, "message", e.getMessage()));
+        }
+    }
+
+    @PostMapping("/analysis/monitor/cleanup-all")
+    public ResponseEntity<Map<String, Object>> cleanupAllMonitoringJobs() {
+        try {
+            log.info("收到清理所有盯盘任务的请求");
+            stockAnalysisService.cleanupAllMonitoringJobs();
+            return ResponseEntity.ok(Map.of("success", true, "message", "所有盯盘任务已清理完成"));
+        } catch (Exception e) {
+            log.error("清理所有盯盘任务失败: {}", e.getMessage(), e);
+            return ResponseEntity.ok(Map.of("success", false, "message", e.getMessage()));
+        }
+    }
+
+    @GetMapping("/analysis/monitor/records/today/{stockCode}")
+    public ResponseEntity<Map<String, Object>> getTodayMonitoringRecords(@PathVariable String stockCode) {
+        try {
+            java.time.LocalDate today = java.time.LocalDate.now();
+            java.time.LocalDateTime start = today.atStartOfDay();
+            java.time.LocalDateTime end = today.atTime(23, 59, 59);
+            var list = stockAnalysisService.getTodayMonitoringRecords(stockCode, start, end);
+            return ResponseEntity.ok(Map.of("success", true, "data", list));
+        } catch (Exception e) {
+            log.error("获取今日盯盘记录失败: {}", e.getMessage(), e);
+            return ResponseEntity.ok(Map.of("success", false, "message", e.getMessage()));
+        }
+    }
+    
+    /**
      * 将StockRecommendationDetailEntity转换为StockRecommendationDetail模型
      */
     private StockRecommendationDetail convertToModel(com.stockanalysis.entity.StockRecommendationDetailEntity entity) {
@@ -436,4 +621,19 @@ public class StockAnalysisController {
         
         return model;
     }
+
+  /**
+   * 获取所有正在盯盘的任务
+   */
+  @GetMapping("/monitor/all-jobs")
+  public ResponseEntity<List<Map<String, Object>>> getAllMonitoringJobs() {
+    try {
+      List<Map<String, Object>> jobs = stockAnalysisService.getAllMonitoringJobs();
+      return ResponseEntity.ok(jobs);
+    } catch (Exception e) {
+      log.error("获取所有盯盘任务失败", e);
+      return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+          .body(Collections.emptyList());
+    }
+  }
 }

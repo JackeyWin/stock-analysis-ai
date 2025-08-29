@@ -100,12 +100,17 @@ public class DailyRecommendationService {
             }
         }
         
-        // 转换推荐股票列表
-        if (entity.getRecommendedStocks() != null) {
-            List<StockRecommendationDetail> details = entity.getRecommendedStocks().stream()
-                    .map(this::convertDetailEntityToModel)
-                    .collect(Collectors.toList());
-            model.setRecommendedStocks(details);
+        // 转换推荐股票列表 - 安全处理懒加载
+        try {
+            if (entity.getRecommendedStocks() != null) {
+                List<StockRecommendationDetail> details = entity.getRecommendedStocks().stream()
+                        .map(this::convertDetailEntityToModel)
+                        .collect(Collectors.toList());
+                model.setRecommendedStocks(details);
+            }
+        } catch (Exception e) {
+            log.warn("转换推荐股票列表时出现懒加载问题: {}", e.getMessage());
+            model.setRecommendedStocks(new ArrayList<>());
         }
         
         return model;

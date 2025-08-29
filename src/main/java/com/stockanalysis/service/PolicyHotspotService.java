@@ -2,6 +2,7 @@ package com.stockanalysis.service;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import java.time.LocalDate;
@@ -23,7 +24,7 @@ public class PolicyHotspotService {
     private final StockAnalysisAI stockAnalysisAI;
     private final PythonScriptService pythonScriptService;
 
-    public PolicyHotspotService(StockAnalysisAI stockAnalysisAI, PythonScriptService pythonScriptService) {
+    public PolicyHotspotService(@Qualifier("stockAnalysisAIChat") StockAnalysisAI stockAnalysisAI, PythonScriptService pythonScriptService) {
         this.stockAnalysisAI = stockAnalysisAI;
         this.pythonScriptService = pythonScriptService;
         this.webClient = WebClient.builder()
@@ -102,32 +103,65 @@ public class PolicyHotspotService {
                 "你是一个专业的政策分析助手。请严格按照以下要求执行：\n\n" +
                 "1. 使用searchPolicies工具获取最新政策信息，查询政策或行业信息只能用这个工具：\n" +
                 "   - 区域：China\n" +
-                "   - 政策领域：economic policy OR industrial policy\n" +
-                "   - 最大返回结果数：10\n" +
-                "   - 时间范围：day\n\n" +
+                "   - 政策领域：economic policy OR industrial policy OR financial policy OR monetary policy OR securities market policy OR technology policy OR AI policy OR data policy OR computing power policy OR energy policy OR environmental policy OR trade policy OR export policy OR investment policy OR innovation policy OR digital policy OR manufacturing policy OR service industry policy OR agriculture policy OR healthcare policy OR pharmaceutical policy OR education policy OR real estate policy OR infrastructure policy OR transportation policy OR new energy vehicle policy OR semiconductor policy OR urban development policy OR rural revitalization policy OR regional development policy OR opening up policy OR cross-border capital policy OR tax policy OR consumption stimulus policy OR state-owned enterprise reform policy\n" +
+                "   - 最大返回结果数：30\n" +
+                "   - 时间范围：24h（若结果不足，可扩大到48h）\n\n" +
                 "2. 如果上述查询结果不足，依次添加以下关键词：\n" +
                 "   - NDRC (List of Approved Projects)\n" +
                 "   - MOF (Interest Subsidy Catalog)\n" +
                 "   - MIIT (Catalog of Recommended Innovative Technologies)\n" +
                 "   - NDA (List of Authorized Data Operators)\n" +
                 "   - Joint Statement by Government Departments\n" +
-                "   - Public Tendering\n\n" +
-                "3. 已提供全量行业名称列表（必须严格使用以下列表中的行业名称，不得自创/改名）：\n" +
+                "   - Public Tendering\n" +
+                "   - State Council Executive Meeting\n" +
+                "   - Central Economic Work Conference\n" +
+                "   - Two Sessions (NPC & CPPCC)\n" +
+                "   - Belt and Road Initiative\n" +
+                "   - Carbon Neutrality Policy\n" +
+                "   - Digital Economy Development\n" +
+                "   - Made in China 2025\n" +
+                "   - Dual Circulation Strategy\n" +
+                "   - Common Prosperity Policy\n" +
+                "   - PBOC MLF/LPR/Reserve Requirement Ratio/FX policy\n" +
+                "   - CSRC IPO/registration system/market microstructure/short-selling rules/margin financing and securities lending\n" +
+                "   - Stamp duty adjustment/transaction fee/commission reforms\n" +
+                "   - Property market easing/\"Three Red Lines\"/mortgage rate floors/property purchase restrictions\n" +
+                "   - Fiscal stimulus/special-purpose bonds/local government debt swap\n" +
+                "   - Consumption vouchers/auto purchase tax incentives/home appliance trade-in\n" +
+                "   - NEV subsidies/charging infrastructure policy/battery swapping policy\n" +
+                "   - Semiconductor/chip policy/IC support/fab projects/EDA/IP support\n" +
+                "   - AI/model regulation/compute power centers/data element market/digital yuan\n" +
+                "   - Cross-border e-commerce/export tax rebate/export controls/sanctions impact\n" +
+                "   - Green finance/ESG/renewable energy subsidy/coal capacity policy/power pricing reforms\n" +
+                "   - REITs (infrastructure/public) policy/pilot expansion\n" +
+                "   - MSCI/FTSE/Russell inclusion methodology changes and A-share weights\n" +
+                "   - Northbound/Southbound capital flow policy (Connect programs)\n\n" +
+                "3. 检索策略（严格执行，逐步回退，直到得到足量结果）：\n" +
+                "   - 第1轮：使用上述政策领域+基础关键词，时间范围24h，返回尽量多的高相关结果\n" +
+                "   - 第2轮：若不足，补充关键词组（依次尝试），允许翻页或更换子关键词\n" +
+                "   - 第3轮：仍不足，扩大时间范围到48h，继续检索并去重\n" +
+                "   - 结果要求：尽量覆盖2-5个行业；不足2个时继续回退直至达到或无可扩展\n\n" +
+                "4. 已提供全量行业名称列表（必须严格使用以下列表中的行业名称，不得自创/改名）：\n" +
                 "   %s\n\n" +
-                "4. 根据政策信息筛选出政策利好的行业（仅使用上述行业名称）。\n\n" +
-                "5. 输出格式要求：\n" +
+                "5. 根据政策信息筛选出政策利好的行业，必须选出对行业有短期情绪面利好影响的内容（仅使用上述行业名称）。\n\n" +
+                "6. 不要轻易返回空JSON：只有在完成所有关键词与时间范围回退后仍无有效信息时，才返回空JSON对象。\n\n" +
+                "7. 输出格式要求：\n" +
                 "   - 必须输出纯JSON格式，不能包含任何其他文字\n" +
                 "   - 不能使用```json```或``````标记\n" +
                 "   - 不能包含注释、说明或其他非JSON内容\n" +
                 "   - JSON结构：{\"行业名称\":\"利好因素描述\"}\n" +
-                "   - 利好因素要求：200字左右，包含政策发布时间、相关产业名称、热点概念名称\n" +
+                "   - 利好因素要求：200字左右，必须包含政策真实的发布时间、政策影响的时间范围、相关产业名称、热点概念名称\n" +
+                "   - 值内严格禁止出现英文双引号\"，如需引用请使用中文引号「」或将英文双引号转义为\\\"\n" +
+                "   - 输出前自检：确保能被标准JSON.parse与Jackson解析，无任何未转义的双引号\n" +
                 "   - 如果涉及企业，一定要标注企业名称，一定要标注股票代码\n\n" +
-                "6. 示例输出格式：\n" +
+                "8. 示例输出格式：\n" +
                 "{\"半导体\":\"2025年8月22日，工信部发布半导体产业支持政策，重点支持国产替代...\",\"新能源\":\"2025年8月22日，发改委发布新能源补贴政策...\"}\n\n" +
-                "7. 重要提醒：\n" +
+                "9. 重要提醒：\n" +
                 "   - 只输出JSON数据，不要任何其他内容\n" +
                 "   - 确保JSON格式完全正确，可以被标准JSON解析器解析\n" +
-                "   - 如果无法获取有效数据，返回空JSON对象：{}\n\n" +
+                "   - 如果无法获取有效数据，返回空JSON对象：{}\n" +
+                "   - 严格禁止：不要调用任何其他工具，只使用searchPolicies工具\n" +
+                "   - 时间要求：优先24小时内；若不足，允许扩展至48小时（已在检索策略中说明）\n\n" +
                 "当前日期：%s",
                 sectorList,
                 currentDate

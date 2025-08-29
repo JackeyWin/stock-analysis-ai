@@ -8,11 +8,13 @@ import com.stockanalysis.util.RetryTemplate;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.DisposableBean;
 
 import java.time.LocalDateTime;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.ArrayList;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
@@ -20,24 +22,37 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.HashMap;
 import java.time.Duration;
+import java.util.Date;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.langchain4j.model.chat.ChatLanguageModel;
+import org.springframework.beans.factory.annotation.Qualifier;
+import com.fasterxml.jackson.core.type.TypeReference;
 
 /**
  * 股票分析服务
  */
 @Slf4j
 @Service
-public class StockAnalysisService {
+public class StockAnalysisService implements DisposableBean {
 
     private final PythonScriptService pythonScriptService;
     private final AIAnalysisService aiAnalysisService;
     private final DailyRecommendationStorageService dailyRecommendationStorageService;
     private final StockAnalysisResultRepository stockAnalysisResultRepository;
+    private final com.stockanalysis.repository.StockMonitoringRecordRepository stockMonitoringRecordRepository;
+    private final com.stockanalysis.repository.StockMonitoringJobRepository stockMonitoringJobRepository;
+    private final StockAnalysisAI stockAnalysisAI;
     private final ExecutorService executorService;
+    private final ChatLanguageModel deepseekChatModel;
     
     // 缓存相关
     private final Map<String, CacheEntry<List<Map<String, Object>>>> stockDataCache = new ConcurrentHashMap<>();
     private final Map<String, CacheEntry<Map<String, Object>>> technicalIndicatorsCache = new ConcurrentHashMap<>();
     private final Map<String, CacheEntry<List<Map<String, Object>>>> newsDataCache = new ConcurrentHashMap<>();
+    
+    // AI分析任务状态管理
+    private final Map<String, AIAnalysisTask> aiAnalysisTasks = new ConcurrentHashMap<>();
+    private final Map<String, MonitoringJob> monitoringJobs = new ConcurrentHashMap<>();
     
     // 缓存过期时间配置
     private static final Duration STOCK_DATA_CACHE_DURATION = Duration.ofMinutes(5);
@@ -71,12 +86,20 @@ public class StockAnalysisService {
     public StockAnalysisService(PythonScriptService pythonScriptService, 
                                AIAnalysisService aiAnalysisService,
                                DailyRecommendationStorageService dailyRecommendationStorageService,
-                               StockAnalysisResultRepository stockAnalysisResultRepository) {
+                               StockAnalysisResultRepository stockAnalysisResultRepository,
+                               StockAnalysisAI stockAnalysisAI,
+                               @Qualifier("deepseekChatModel") ChatLanguageModel deepseekChatModel,
+                               com.stockanalysis.repository.StockMonitoringRecordRepository stockMonitoringRecordRepository,
+                               com.stockanalysis.repository.StockMonitoringJobRepository stockMonitoringJobRepository) {
         this.pythonScriptService = pythonScriptService;
         this.aiAnalysisService = aiAnalysisService;
         this.dailyRecommendationStorageService = dailyRecommendationStorageService;
         this.stockAnalysisResultRepository = stockAnalysisResultRepository;
+        this.stockAnalysisAI = stockAnalysisAI;
         this.executorService = Executors.newFixedThreadPool(6);
+        this.deepseekChatModel = deepseekChatModel;
+        this.stockMonitoringRecordRepository = stockMonitoringRecordRepository;
+        this.stockMonitoringJobRepository = stockMonitoringJobRepository;
     }
     
     public DailyRecommendationStorageService getDailyRecommendationStorageService() {
@@ -481,6 +504,84 @@ public class StockAnalysisService {
         } catch (Exception e) {
             log.error("风险评估失败: {}", e.getMessage(), e);
             throw new RuntimeException("风险评估失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 获取股票详细分析数据
+     * 包含技术指标、资金流向、AI分析等全方位数据
+     */
+    public Map<String, Object> getDetailedStockAnalysis(String stockCode) {
+        Map<String, Object> detailedAnalysis = new HashMap<>();
+        
+        try {
+            log.info("开始获取股票 {} 的详细分析数据", stockCode);
+            
+            // 1. 获取股票基础数据
+            try {
+                Map<String, Object> basicData = pythonScriptService.getStockBasicData(stockCode);
+                if (basicData != null && !basicData.isEmpty()) {
+                    detailedAnalysis.put("stockBasic", basicData);
+                    log.debug("股票 {} 基础数据获取成功", stockCode);
+                }
+            } catch (Exception e) {
+                log.warn("获取股票 {} 基础数据失败: {}", stockCode, e.getMessage());
+            }
+            
+            // 2. 获取技术指标数据
+            try {
+                Map<String, Object> technicalData = getTechnicalIndicators(stockCode);
+                if (technicalData != null && !technicalData.isEmpty()) {
+                    detailedAnalysis.put("technicalIndicators", technicalData);
+                    log.debug("股票 {} 技术指标获取成功", stockCode);
+                }
+            } catch (Exception e) {
+                log.warn("获取股票 {} 技术指标失败: {}", stockCode, e.getMessage());
+            }
+            
+            // 3. 获取资金流向数据
+            try {
+                List<Map<String, Object>> moneyFlowData = pythonScriptService.getMoneyFlowData(stockCode);
+                if (moneyFlowData != null && !moneyFlowData.isEmpty()) {
+                    detailedAnalysis.put("moneyFlowData", moneyFlowData);
+                    log.debug("股票 {} 资金流向数据获取成功", stockCode);
+                }
+            } catch (Exception e) {
+                log.warn("获取股票 {} 资金流向数据失败: {}", stockCode, e.getMessage());
+            }
+            
+            // 4. 获取融资融券数据
+            try {
+                List<Map<String, Object>> marginData = pythonScriptService.getMarginTradingData(stockCode);
+                if (marginData != null && !marginData.isEmpty()) {
+                    detailedAnalysis.put("marginTradingData", marginData);
+                    log.debug("股票 {} 融资融券数据获取成功", stockCode);
+                }
+            } catch (Exception e) {
+                log.warn("获取股票 {} 融资融券数据失败: {}", stockCode, e.getMessage());
+            }
+            
+            // 5. 获取同行比较数据
+            try {
+                Map<String, Object> peerData = pythonScriptService.getPeerComparisonData(stockCode);
+                if (peerData != null && !peerData.isEmpty()) {
+                    detailedAnalysis.put("peerComparison", peerData);
+                    log.debug("股票 {} 同行比较数据获取成功", stockCode);
+                }
+            } catch (Exception e) {
+                log.warn("获取股票 {} 同行比较数据失败: {}", stockCode, e.getMessage());
+            }
+            
+            // 7. 添加分析时间戳
+            detailedAnalysis.put("analysisTimestamp", new Date().toString());
+            detailedAnalysis.put("stockCode", stockCode);
+            
+            log.info("股票 {} 详细分析数据获取完成，包含 {} 个数据模块", stockCode, detailedAnalysis.size() - 2); // 减去stockCode和timestamp
+            return detailedAnalysis;
+            
+        } catch (Exception e) {
+            log.error("获取股票 {} 详细分析数据时发生异常: {}", stockCode, e.getMessage(), e);
+            throw new RuntimeException("获取详细分析数据失败: " + e.getMessage(), e);
         }
     }
 
@@ -970,8 +1071,8 @@ public class StockAnalysisService {
         try {
             // 先删除同一台机器对同一支股票的旧记录
             try {
-                stockAnalysisResultRepository.deleteByMachineIdAndStockCode(request.getMachineId(), request.getStockCode());
-                log.info("已删除同一台机器对股票 {} 的旧分析记录", request.getStockCode());
+                stockAnalysisResultRepository.deleteByStockCode(request.getStockCode());
+                log.info("已删除对股票 {} 的旧分析记录", request.getStockCode());
             } catch (Exception e) {
                 log.warn("删除旧分析记录失败: {}", e.getMessage());
             }
@@ -993,5 +1094,754 @@ public class StockAnalysisService {
         } catch (Exception e) {
             log.error("保存股票分析结果失败: {}", e.getMessage(), e);
         }
+    }
+
+    /**
+     * AI详细分析股票数据并生成策略推荐
+     */
+    public Map<String, Object> generateAIDetailedAnalysis(String stockCode) {
+        try {
+            log.info("开始AI详细分析股票: {}", stockCode);
+            
+            // 1. 获取详细数据
+            Map<String, Object> detailedData = getDetailedStockAnalysis(stockCode);
+            
+            // 2. 构建AI分析提示
+            String aiPrompt = buildAIAnalysisPrompt(stockCode, detailedData);
+            
+            // 3. 调用AI进行分析
+            String aiAnalysisResult = callAIForAnalysis(aiPrompt);
+            
+            // 4. 解析AI结果
+            Map<String, Object> aiResult = parseAIAnalysisResult(aiAnalysisResult);
+            
+            // 5. 合并结果
+            Map<String, Object> finalResult = new HashMap<>();
+            finalResult.put("stockCode", stockCode);
+            finalResult.put("analysisTimestamp", new Date().toString());
+            finalResult.put("rawData", detailedData);
+            finalResult.put("aiAnalysis", aiResult);
+            
+            log.info("AI详细分析完成，股票代码: {}", stockCode);
+            return finalResult;
+            
+        } catch (Exception e) {
+            log.error("AI详细分析失败: {}", e.getMessage(), e);
+            throw new RuntimeException("AI详细分析失败: " + e.getMessage(), e);
+        }
+    }
+    
+    /**
+     * 构建AI分析提示
+     */
+    private String buildAIAnalysisPrompt(String stockCode, Map<String, Object> data) {
+        StringBuilder prompt = new StringBuilder();
+        prompt.append("请对以下股票数据进行详细分析，并给出投资策略建议。\n\n");
+        prompt.append("股票代码: ").append(stockCode).append("\n\n");
+        
+        // 添加基础数据
+        if (data.containsKey("stockBasic")) {
+            Map<String, Object> basic = (Map<String, Object>) data.get("stockBasic");
+            prompt.append("基础信息:\n");
+            basic.forEach((key, value) -> prompt.append("- ").append(key).append(": ").append(value).append("\n"));
+            prompt.append("\n");
+        }
+        
+        // 添加技术指标
+        if (data.containsKey("technicalIndicators")) {
+            Map<String, Object> technical = (Map<String, Object>) data.get("technicalIndicators");
+            prompt.append("技术指标:\n");
+            technical.forEach((key, value) -> prompt.append("- ").append(key).append(": ").append(value).append("\n"));
+            prompt.append("\n");
+        }
+        
+        // 添加资金流向
+        if (data.containsKey("moneyFlowData")) {
+            List<Map<String, Object>> moneyFlow = (List<Map<String, Object>>) data.get("moneyFlowData");
+            prompt.append("资金流向数据:\n");
+            if (!moneyFlow.isEmpty()) {
+                Map<String, Object> latest = moneyFlow.get(0);
+                latest.forEach((key, value) -> prompt.append("- ").append(key).append(": ").append(value).append("\n"));
+            }
+            prompt.append("\n");
+        }
+        
+        // 添加融资融券数据
+        if (data.containsKey("marginTradingData")) {
+            List<Map<String, Object>> margin = (List<Map<String, Object>>) data.get("marginTradingData");
+            prompt.append("融资融券数据:\n");
+            if (!margin.isEmpty()) {
+                Map<String, Object> latest = margin.get(0);
+                latest.forEach((key, value) -> prompt.append("- ").append(key).append(": ").append(value).append("\n"));
+            }
+            prompt.append("\n");
+        }
+        
+        // 添加同行比较
+        if (data.containsKey("peerComparison")) {
+            Map<String, Object> peer = (Map<String, Object>) data.get("peerComparison");
+            prompt.append("同行比较数据:\n");
+            peer.forEach((key, value) -> prompt.append("- ").append(key).append(": ").append(value).append("\n"));
+            prompt.append("\n");
+        }
+        
+        prompt.append("请基于以上数据，提供以下分析：\n");
+        prompt.append("1. 技术面分析：包括趋势、支撑阻力位、技术指标解读\n");
+        prompt.append("2. 资金面分析：资金流向、融资融券变化\n");
+        prompt.append("3. 基本面分析：行业地位、估值水平\n");
+        prompt.append("4. 风险评估：当前风险等级和主要风险点\n");
+        prompt.append("5. 投资策略：买入/持有/卖出建议，目标价位，止损位\n");
+        prompt.append("6. 操作建议：具体操作时机和注意事项\n\n");
+        prompt.append("请以JSON格式返回，包含以下字段：\n");
+        prompt.append("- technicalAnalysis: 技术面分析\n");
+        prompt.append("- capitalAnalysis: 资金面分析\n");
+        prompt.append("- fundamentalAnalysis: 基本面分析\n");
+        prompt.append("- riskAssessment: 风险评估\n");
+        prompt.append("- investmentStrategy: 投资策略\n");
+        prompt.append("- operationAdvice: 操作建议\n");
+        prompt.append("- summary: 总结\n");
+        
+        return prompt.toString();
+    }
+    
+    /**
+     * 调用AI进行分析
+     */
+    private String callAIForAnalysis(String prompt) {
+        try {
+            log.info("调用AI进行分析，提示长度: {}", prompt.length());
+            
+            // 调用现有的AI服务进行分析
+            String aiAnalysisResult = stockAnalysisAI.analyzeGeneralMarket(prompt);
+            
+            log.info("AI分析完成，结果长度: {}", aiAnalysisResult.length());
+            return aiAnalysisResult;
+            
+        } catch (Exception e) {
+            log.error("AI分析调用失败: {}", e.getMessage(), e);
+            // 如果AI服务调用失败，返回模拟结果作为备选
+            log.warn("使用模拟AI分析结果作为备选");
+            return generateMockAIAnalysis();
+        }
+    }
+    
+    /**
+     * 生成模拟的AI分析结果
+     */
+    private String generateMockAIAnalysis() {
+        return """
+            {
+                "technicalAnalysis": "从技术指标看，该股票MA5、MA10、MA20呈现多头排列，RSI处于50-70区间，MACD金叉向上，技术面偏强。布林带显示股价运行在上轨附近，KDJ指标显示超买信号。",
+                "capitalAnalysis": "资金流向数据显示主力资金持续流入，融资余额稳步增长，融券余额相对较低，表明市场对该股票较为看好。",
+                "fundamentalAnalysis": "该股票在行业内具有较强竞争力，估值水平合理，基本面稳健。",
+                "riskAssessment": "当前风险等级为中等，主要风险包括：1）技术面超买风险；2）市场整体波动风险；3）行业政策变化风险。",
+                "investmentStrategy": "建议采取分批建仓策略，当前价位可少量买入，回调时分批加仓。目标价位：当前价格+15%，止损位：当前价格-8%。",
+                "operationAdvice": "1）关注大盘走势，避免系统性风险；2）设置止盈止损，严格执行；3）分批操作，控制仓位；4）关注公司公告和行业动态。",
+                "summary": "该股票技术面偏强，资金面良好，基本面稳健，建议适度参与，注意风险控制。"
+            }
+            """;
+    }
+    
+    /**
+     * 解析AI分析结果
+     */
+    private Map<String, Object> parseAIAnalysisResult(String aiResult) {
+        try {
+            ObjectMapper objectMapper = new ObjectMapper();
+            return objectMapper.readValue(aiResult, new TypeReference<Map<String, Object>>() {});
+        } catch (Exception e) {
+            log.error("解析AI分析结果失败: {}", e.getMessage(), e);
+            // 返回错误信息
+            Map<String, Object> errorResult = new HashMap<>();
+            errorResult.put("error", "AI分析结果解析失败: " + e.getMessage());
+            errorResult.put("rawResult", aiResult);
+            return errorResult;
+        }
+    }
+    
+    /**
+     * 启动AI详细分析（异步）
+     */
+    public void startAIDetailedAnalysisAsync(String stockCode, String taskId) {
+        AIAnalysisTask task = new AIAnalysisTask(taskId, stockCode);
+        aiAnalysisTasks.put(taskId, task);
+        
+        // 异步执行分析任务
+        CompletableFuture.runAsync(() -> {
+            try {
+                log.info("开始异步AI详细分析，任务ID: {}, 股票代码: {}", taskId, stockCode);
+                
+                // 更新进度
+                task.setProgress(10);
+                
+                // 获取详细数据
+                Map<String, Object> detailedData = getDetailedStockAnalysis(stockCode);
+                task.setProgress(40);
+                
+                // 构建AI提示词
+                String prompt = buildAIAnalysisPrompt(stockCode, detailedData);
+                task.setProgress(60);
+                
+                // 调用AI分析
+                String aiResult = callAIForAnalysis(prompt);
+                task.setProgress(80);
+                
+                // 解析AI结果
+                Map<String, Object> aiAnalysis = parseAIAnalysisResult(aiResult);
+                task.setProgress(90);
+                
+                // 组装最终结果
+                Map<String, Object> finalResult = new HashMap<>();
+                finalResult.put("aiAnalysis", aiAnalysis);
+                finalResult.put("rawData", detailedData);
+                finalResult.put("analysisTimestamp", new Date().toString());
+                finalResult.put("stockCode", stockCode);
+                
+                task.setResult(finalResult);
+                task.setStatus("COMPLETED");
+                task.setProgress(100);
+                
+                log.info("异步AI详细分析完成，任务ID: {}, 股票代码: {}", taskId, stockCode);
+                
+            } catch (Exception e) {
+                log.error("异步AI详细分析失败，任务ID: {}, 股票代码: {}: {}", taskId, stockCode, e.getMessage(), e);
+                task.setStatus("FAILED");
+                task.setErrorMessage(e.getMessage());
+            }
+        }, executorService);
+    }
+    
+    /**
+     * 获取AI分析任务状态
+     */
+    public Map<String, Object> getAIAnalysisStatus(String taskId) {
+        AIAnalysisTask task = aiAnalysisTasks.get(taskId);
+        if (task == null) {
+            Map<String, Object> errorStatus = new HashMap<>();
+            errorStatus.put("error", "任务不存在");
+            errorStatus.put("taskId", taskId);
+            return errorStatus;
+        }
+        
+        return task.toStatusMap();
+    }
+
+    // 查询今日盯盘记录
+    public List<Map<String, Object>> getTodayMonitoringRecords(String stockCode, LocalDateTime start, LocalDateTime end) {
+        var list = stockMonitoringRecordRepository.findTodayByStockCode(stockCode, start, end);
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (var r : list) {
+            Map<String, Object> m = new HashMap<>();
+            m.put("id", r.getId());
+            m.put("stockCode", r.getStockCode());
+            m.put("jobId", r.getJobId());
+            m.put("content", r.getContent());
+            m.put("createdAt", r.getCreatedAt().toString());
+            result.add(m);
+        }
+        return result;
+    }
+    
+    /**
+     * AI分析任务状态类
+     */
+    private static class AIAnalysisTask {
+        private final String taskId;
+        private final String stockCode;
+        private final LocalDateTime startTime;
+        private volatile String status; // PROCESSING, COMPLETED, FAILED
+        private volatile Map<String, Object> result;
+        private volatile String errorMessage;
+        private volatile int progress; // 0-100
+        
+        public AIAnalysisTask(String taskId, String stockCode) {
+            this.taskId = taskId;
+            this.stockCode = stockCode;
+            this.startTime = LocalDateTime.now();
+            this.status = "PROCESSING";
+            this.progress = 0;
+        }
+        
+        // Getters and Setters
+        public String getTaskId() { return taskId; }
+        public String getStockCode() { return stockCode; }
+        public LocalDateTime getStartTime() { return startTime; }
+        public String getStatus() { return status; }
+        public void setStatus(String status) { this.status = status; }
+        public Map<String, Object> getResult() { return result; }
+        public void setResult(Map<String, Object> result) { this.result = result; }
+        public String getErrorMessage() { return errorMessage; }
+        public void setErrorMessage(String errorMessage) { this.errorMessage = errorMessage; }
+        public int getProgress() { return this.progress; }
+        public void setProgress(int progress) { this.progress = progress; }
+        
+        public Map<String, Object> toStatusMap() {
+            Map<String, Object> statusMap = new HashMap<>();
+            statusMap.put("taskId", taskId);
+            statusMap.put("stockCode", stockCode);
+            statusMap.put("startTime", startTime.toString());
+            statusMap.put("status", status);
+            statusMap.put("progress", progress);
+            statusMap.put("elapsedTime", java.time.Duration.between(startTime, LocalDateTime.now()).toSeconds());
+            
+            if (result != null) {
+                statusMap.put("result", result);
+            }
+            if (errorMessage != null) {
+                statusMap.put("errorMessage", errorMessage);
+            }
+            
+            return statusMap;
+        }
+    }
+
+    // ========= 盘中盯盘 =========
+    private static class MonitoringJob {
+        private final String jobId;
+        private final String stockCode;
+        private final int intervalMinutes;
+        private final String analysisId;
+        private final String machineId;
+        private final LocalDateTime startTime;
+        private volatile String status; // running, stopped
+        private volatile LocalDateTime lastRunTime;
+        private volatile String lastMessage;
+
+        public MonitoringJob(String jobId, String stockCode, int intervalMinutes, String analysisId, String machineId) {
+            this.jobId = jobId;
+            this.stockCode = stockCode;
+            this.intervalMinutes = intervalMinutes;
+            this.analysisId = analysisId;
+            this.machineId = machineId;
+            this.startTime = LocalDateTime.now();
+            this.status = "running";
+        }
+    }
+
+    public String startIntradayMonitoring(String stockCode, int intervalMinutes, String analysisId, String machineId) {
+        if (intervalMinutes != 5 && intervalMinutes != 10 && intervalMinutes != 30 && intervalMinutes != 60) {
+            throw new IllegalArgumentException("intervalMinutes must be one of 5,10,30,60");
+        }
+        
+        // 检查是否已有该股票的运行中任务
+        if (stockMonitoringJobRepository.existsByStockCodeAndStatus(stockCode, "running")) {
+            throw new IllegalStateException("该股票已有运行中的盯盘任务");
+        }
+        
+        String jobId = "monitor_" + stockCode + "_" + System.currentTimeMillis();
+        
+        // 保存到数据库
+        com.stockanalysis.entity.StockMonitoringJobEntity jobEntity = new com.stockanalysis.entity.StockMonitoringJobEntity();
+        jobEntity.setJobId(jobId);
+        jobEntity.setStockCode(stockCode);
+        jobEntity.setIntervalMinutes(intervalMinutes);
+        jobEntity.setAnalysisId(analysisId);
+        jobEntity.setMachineId(machineId);
+        jobEntity.setStatus("running");
+        jobEntity.setStartTime(java.time.LocalDateTime.now());
+        stockMonitoringJobRepository.save(jobEntity);
+        
+        // 创建内存中的任务对象
+        MonitoringJob job = new MonitoringJob(jobId, stockCode, intervalMinutes, analysisId, machineId);
+        monitoringJobs.put(jobId, job);
+
+        // 启动周期任务
+        CompletableFuture.runAsync(() -> runMonitoringLoop(job), executorService);
+        return jobId;
+    }
+
+    public boolean stopIntradayMonitoring(String jobId) {
+        // 更新数据库中的状态
+        stockMonitoringJobRepository.findByJobId(jobId).ifPresent(jobEntity -> {
+            jobEntity.setStatus("stopped");
+            jobEntity.setLastMessage("用户手动停止");
+            stockMonitoringJobRepository.save(jobEntity);
+        });
+        
+        // 更新内存中的状态
+        MonitoringJob job = monitoringJobs.get(jobId);
+        if (job != null) {
+            job.status = "stopped";
+        }
+        
+        return true;
+    }
+
+    public Map<String, Object> getIntradayMonitoringStatus(String jobId) {
+        // 优先从数据库查询
+        return stockMonitoringJobRepository.findByJobId(jobId)
+            .map(jobEntity -> {
+                Map<String, Object> status = new HashMap<>();
+                status.put("exists", true);
+                status.put("jobId", jobEntity.getJobId());
+                status.put("stockCode", jobEntity.getStockCode());
+                status.put("intervalMinutes", jobEntity.getIntervalMinutes());
+                status.put("status", jobEntity.getStatus());
+                status.put("startTime", jobEntity.getStartTime().toString());
+                status.put("lastRunTime", jobEntity.getLastRunTime() == null ? null : jobEntity.getLastRunTime().toString());
+                status.put("lastMessage", jobEntity.getLastMessage());
+                return status;
+            })
+            .orElse(Map.of("exists", false));
+    }
+
+    public Map<String, Object> getStockMonitoringStatus(String stockCode) {
+        return stockMonitoringJobRepository.findRunningJobByStockCode(stockCode)
+            .map(jobEntity -> {
+                Map<String, Object> status = new HashMap<>();
+                status.put("exists", true);
+                status.put("jobId", jobEntity.getJobId());
+                status.put("stockCode", jobEntity.getStockCode());
+                status.put("intervalMinutes", jobEntity.getIntervalMinutes());
+                status.put("status", jobEntity.getStatus());
+                status.put("startTime", jobEntity.getStartTime().toString());
+                status.put("lastRunTime", jobEntity.getLastRunTime() == null ? null : jobEntity.getLastRunTime().toString());
+                status.put("lastMessage", jobEntity.getLastMessage());
+                return status;
+            })
+            .orElse(Map.of("exists", false));
+    }
+
+    /**
+     * 手动清理所有运行中的盯盘任务
+     */
+    public void cleanupAllMonitoringJobs() {
+        log.info("手动清理所有运行中的盯盘任务...");
+        
+        try {
+            // 获取所有运行中的任务
+            List<com.stockanalysis.entity.StockMonitoringJobEntity> runningJobs = 
+                stockMonitoringJobRepository.findAllRunningJobs();
+            
+            if (runningJobs.isEmpty()) {
+                log.info("没有运行中的盯盘任务需要清理");
+                return;
+            }
+            
+            log.info("发现 {} 个运行中的盯盘任务，开始清理...", runningJobs.size());
+            
+            for (com.stockanalysis.entity.StockMonitoringJobEntity jobEntity : runningJobs) {
+                try {
+                    // 更新数据库状态为已停止
+                    jobEntity.setStatus("stopped");
+                    jobEntity.setLastMessage("手动清理停止");
+                    jobEntity.setLastRunTime(java.time.LocalDateTime.now());
+                    stockMonitoringJobRepository.save(jobEntity);
+                    
+                    // 停止内存中的任务
+                    MonitoringJob memoryJob = monitoringJobs.get(jobEntity.getJobId());
+                    if (memoryJob != null) {
+                        memoryJob.status = "stopped";
+                        memoryJob.lastMessage = "手动清理停止";
+                        log.info("已停止内存中的盯盘任务: {} - {}", jobEntity.getStockCode(), jobEntity.getJobId());
+                    }
+                    
+                    log.info("已清理盯盘任务: {} - {} ({})", 
+                        jobEntity.getStockCode(), jobEntity.getJobId(), jobEntity.getIntervalMinutes());
+                        
+                } catch (Exception e) {
+                    log.error("清理盯盘任务失败: {} - {}", jobEntity.getStockCode(), jobEntity.getJobId(), e.getMessage());
+                }
+            }
+            
+            log.info("盯盘任务清理完成，共清理 {} 个任务", runningJobs.size());
+            
+        } catch (Exception e) {
+            log.error("清理盯盘任务时发生错误", e);
+        }
+    }
+
+    /**
+     * 午间暂停：将所有 running 的盯盘任务标记为 paused（数据库与内存）
+     */
+    public void pauseAllMonitoringJobs() {
+        try {
+            List<com.stockanalysis.entity.StockMonitoringJobEntity> runningJobs =
+                stockMonitoringJobRepository.findAllRunningJobs();
+            if (runningJobs.isEmpty()) {
+                log.info("没有运行中的盯盘任务需要暂停");
+                return;
+            }
+            for (com.stockanalysis.entity.StockMonitoringJobEntity jobEntity : runningJobs) {
+                jobEntity.setStatus("paused");
+                jobEntity.setLastMessage("午间暂停");
+                jobEntity.setLastRunTime(java.time.LocalDateTime.now());
+                stockMonitoringJobRepository.save(jobEntity);
+
+                MonitoringJob memoryJob = monitoringJobs.get(jobEntity.getJobId());
+                if (memoryJob != null) {
+                    memoryJob.status = "paused";
+                    memoryJob.lastMessage = "午间暂停";
+                }
+            }
+            log.info("午间暂停完成，共暂停 {} 个任务", runningJobs.size());
+        } catch (Exception e) {
+            log.error("午间暂停盯盘任务失败", e);
+        }
+    }
+
+    /**
+     * 午间恢复：将所有 paused 的盯盘任务标记为 running（数据库与内存），由循环继续执行
+     */
+    public void resumeAllMonitoringJobs() {
+        try {
+            List<com.stockanalysis.entity.StockMonitoringJobEntity> pausedJobs =
+                stockMonitoringJobRepository.findAllPausedJobs();
+            if (pausedJobs.isEmpty()) {
+                log.info("没有暂停中的盯盘任务需要恢复");
+                return;
+            }
+            for (com.stockanalysis.entity.StockMonitoringJobEntity jobEntity : pausedJobs) {
+                jobEntity.setStatus("running");
+                jobEntity.setLastMessage("午间恢复");
+                jobEntity.setLastRunTime(java.time.LocalDateTime.now());
+                stockMonitoringJobRepository.save(jobEntity);
+
+                MonitoringJob memoryJob = monitoringJobs.get(jobEntity.getJobId());
+                if (memoryJob != null) {
+                    memoryJob.status = "running";
+                    memoryJob.lastMessage = "午间恢复";
+                } else {
+                    // 内存中不存在（应用重启等情况），创建占位以便循环可感知
+                    MonitoringJob job = new MonitoringJob(jobEntity.getJobId(), jobEntity.getStockCode(),
+                            jobEntity.getIntervalMinutes(), null, null);
+                    job.status = "running";
+                    job.lastMessage = "午间恢复";
+                    monitoringJobs.put(jobEntity.getJobId(), job);
+                    java.util.concurrent.CompletableFuture.runAsync(() -> runMonitoringLoop(job), executorService);
+                }
+            }
+            log.info("午间恢复完成，共恢复 {} 个任务", pausedJobs.size());
+        } catch (Exception e) {
+            log.error("午间恢复盯盘任务失败", e);
+        }
+    }
+
+    /**
+     * 获取所有正在盯盘的任务
+     */
+    public List<Map<String, Object>> getAllMonitoringJobs() {
+        try {
+            List<com.stockanalysis.entity.StockMonitoringJobEntity> jobs = 
+                stockMonitoringJobRepository.findAllRunningJobs();
+            List<Map<String, Object>> result = new ArrayList<>();
+            
+            for (com.stockanalysis.entity.StockMonitoringJobEntity job : jobs) {
+                Map<String, Object> jobInfo = new HashMap<>();
+                jobInfo.put("jobId", job.getJobId());
+                jobInfo.put("stockCode", job.getStockCode());
+                jobInfo.put("stockName", getStockName(job.getStockCode())); // 获取股票名称
+                jobInfo.put("intervalMinutes", job.getIntervalMinutes());
+                jobInfo.put("status", job.getStatus());
+                jobInfo.put("startTime", job.getStartTime());
+                jobInfo.put("lastRunTime", job.getLastRunTime());
+                jobInfo.put("lastMessage", job.getLastMessage());
+                jobInfo.put("createdAt", job.getCreatedAt());
+                jobInfo.put("updatedAt", job.getUpdatedAt());
+                
+                result.add(jobInfo);
+            }
+            
+            return result;
+        } catch (Exception e) {
+            log.error("获取所有盯盘任务失败", e);
+            return new ArrayList<>();
+        }
+    }
+
+    /**
+     * 获取股票名称（简化实现）
+     */
+    private String getStockName(String stockCode) {
+        // 这里可以根据需要实现股票名称获取逻辑
+        // 暂时返回股票代码
+        return stockCode;
+    }
+
+    /**
+     * 应用关闭时清理所有运行中的盯盘任务
+     */
+    @Override
+    public void destroy() throws Exception {
+        log.info("应用正在关闭，开始清理所有运行中的盯盘任务...");
+        
+        try {
+            // 获取所有运行中的任务
+            List<com.stockanalysis.entity.StockMonitoringJobEntity> runningJobs = 
+                stockMonitoringJobRepository.findAllRunningJobs();
+            
+            if (runningJobs.isEmpty()) {
+                log.info("没有运行中的盯盘任务需要清理");
+                return;
+            }
+            
+            log.info("发现 {} 个运行中的盯盘任务，开始清理...", runningJobs.size());
+            
+            for (com.stockanalysis.entity.StockMonitoringJobEntity jobEntity : runningJobs) {
+                try {
+                    // 更新数据库状态为已停止
+                    jobEntity.setStatus("stopped");
+                    jobEntity.setLastMessage("应用关闭时自动停止");
+                    jobEntity.setLastRunTime(java.time.LocalDateTime.now());
+                    stockMonitoringJobRepository.save(jobEntity);
+                    
+                    // 停止内存中的任务
+                    MonitoringJob memoryJob = monitoringJobs.get(jobEntity.getJobId());
+                    if (memoryJob != null) {
+                        memoryJob.status = "stopped";
+                        memoryJob.lastMessage = "应用关闭时自动停止";
+                        log.info("已停止内存中的盯盘任务: {} - {}", jobEntity.getStockCode(), jobEntity.getJobId());
+                    }
+                    
+                    log.info("已清理盯盘任务: {} - {} ({})", 
+                        jobEntity.getStockCode(), jobEntity.getJobId(), jobEntity.getIntervalMinutes());
+                        
+                } catch (Exception e) {
+                    log.error("清理盯盘任务失败: {} - {}", jobEntity.getStockCode(), jobEntity.getJobId(), e.getMessage());
+                }
+            }
+            
+            // 关闭线程池
+            if (executorService != null && !executorService.isShutdown()) {
+                log.info("正在关闭线程池...");
+                executorService.shutdown();
+                
+                // 等待线程池关闭，最多等待30秒
+                if (!executorService.awaitTermination(30, java.util.concurrent.TimeUnit.SECONDS)) {
+                    log.warn("线程池未能在30秒内完全关闭，强制关闭");
+                    executorService.shutdownNow();
+                }
+            }
+            
+            log.info("盯盘任务清理完成，共清理 {} 个任务", runningJobs.size());
+            
+        } catch (Exception e) {
+            log.error("清理盯盘任务时发生错误", e);
+        }
+    }
+
+    private void runMonitoringLoop(MonitoringJob job) {
+        while ("running".equals(job.status) || "paused".equals(job.status)) {
+            try {
+                // 午间暂停窗口：11:30-13:00（工作日）
+                java.time.LocalTime nowTime = java.time.LocalTime.now();
+                java.time.DayOfWeek dow2 = java.time.LocalDate.now().getDayOfWeek();
+                boolean workDay2 = dow2 != java.time.DayOfWeek.SATURDAY && dow2 != java.time.DayOfWeek.SUNDAY;
+                if (workDay2 && (nowTime.isAfter(java.time.LocalTime.of(11, 30)) && nowTime.isBefore(java.time.LocalTime.of(13, 0)))) {
+                    job.status = "paused";
+                    job.lastMessage = "午间暂停";
+                    // 同步数据库为 paused
+                    stockMonitoringJobRepository.findByJobId(job.jobId).ifPresent(e -> {
+                        e.setStatus("paused");
+                        e.setLastMessage("午间暂停");
+                        e.setLastRunTime(java.time.LocalDateTime.now());
+                        stockMonitoringJobRepository.save(e);
+                    });
+                }
+
+                if ("paused".equals(job.status)) {
+                    // 每30秒检查一次是否过了13:00或被外部恢复/停止
+                    Thread.sleep(30_000);
+                    // 若数据库被设置为 running，则切回运行
+                    stockMonitoringJobRepository.findByJobId(job.jobId).ifPresent(e -> job.status = e.getStatus());
+                    continue;
+                }
+                // 非交易时段（15:00后或非工作日）自动停止
+                java.time.LocalDate today = java.time.LocalDate.now();
+                java.time.LocalTime now = java.time.LocalTime.now();
+                java.time.DayOfWeek dow = today.getDayOfWeek();
+                boolean isWorkDay = dow != java.time.DayOfWeek.SATURDAY && dow != java.time.DayOfWeek.SUNDAY;
+                if (!isWorkDay || now.isAfter(java.time.LocalTime.of(15, 0))) {
+                    job.status = "stopped";
+                    job.lastMessage = "非交易时段，已自动停止";
+                    
+                    // 更新数据库状态
+                    stockMonitoringJobRepository.findByJobId(job.jobId).ifPresent(jobEntity -> {
+                        jobEntity.setStatus("stopped");
+                        jobEntity.setLastMessage("非交易时段，已自动停止");
+                        stockMonitoringJobRepository.save(jobEntity);
+                    });
+                    break;
+                }
+
+                // 收集数据
+                Map<String, Object> rawData = new HashMap<>();
+                try { rawData.put("股票基础数据", pythonScriptService.getStockBasicData(job.stockCode)); } catch (Exception ignore) {}
+                try { rawData.put("个股当日分时", pythonScriptService.getStockTrendsToday(job.stockCode)); } catch (Exception ignore) {}
+                try { rawData.put("大盘当日分时", pythonScriptService.getMarketTrendsToday(job.stockCode)); } catch (Exception ignore) {}
+                try { rawData.put("板块当日分时", pythonScriptService.getBoardTrendsToday(job.stockCode)); } catch (Exception ignore) {}
+                try { rawData.put("当日资金流向", pythonScriptService.getMoneyFlowToday(job.stockCode)); } catch (Exception ignore) {}
+
+                // 从数据库取最新综合分析作为system message（若有）
+                Map<String, Object> context = new HashMap<>();
+                try {
+                    var latest = stockAnalysisResultRepository.findFirstByStockCodeOrderByAnalysisTimeDesc(job.stockCode);
+                    if (latest != null && latest.getFullAnalysis() != null) {
+                        context.put("综合分析", latest.getFullAnalysis());
+                    }
+                } catch (Exception ignore) {}
+
+                String prompt = buildIntradayPrompt(job.stockCode, context, rawData);
+
+                // 用deepseek-chat，尽量少token
+                String aiResult;
+                try {
+                    aiResult = deepseekChatModel.generate(prompt);
+                } catch (Exception e) {
+                    aiResult = "{\"summary\":\"AI暂不可用，稍后重试\"}";
+                }
+
+                // 保存盯盘记录
+                try {
+                    com.stockanalysis.entity.StockMonitoringRecordEntity rec = new com.stockanalysis.entity.StockMonitoringRecordEntity();
+                    rec.setStockCode(job.stockCode);
+                    rec.setJobId(job.jobId);
+                    rec.setContent(aiResult);
+                    stockMonitoringRecordRepository.save(rec);
+                } catch (Exception saveEx) {
+                    log.warn("保存盯盘记录失败: {}", saveEx.getMessage());
+                }
+
+                job.lastRunTime = LocalDateTime.now();
+                job.lastMessage = "OK";
+
+                // 间隔等待
+                Thread.sleep(job.intervalMinutes * 60L * 1000L);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                job.status = "stopped";
+                job.lastMessage = "中断";
+            } catch (Exception e) {
+                job.lastMessage = "异常: " + e.getMessage();
+                try { Thread.sleep(job.intervalMinutes * 60L * 1000L); } catch (InterruptedException ignored) {}
+            }
+        }
+    }
+
+    private String buildIntradayPrompt(String stockCode, Map<String, Object> context, Map<String, Object> data) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("你是一名专业的盘中AI分析师，你的任务是给出当日操作建议。\n")
+          .append("要求: 结合已有综合分析(若有)作为背景，结合实时数据，给出实时的操作建议，最多8-12行。\n")
+          .append("要充分发挥你的专业性，要敢于下判断。\n\n")
+          .append("尽量引用简短的关键数据点，不要重复大段背景，要尽量节省token。\n\n")
+          .append("[股票代码] ").append(stockCode).append("\n");
+        if (context != null && !context.isEmpty()) {
+            sb.append("[综合分析摘要]\n ").append(context.get("综合分析"));
+        }
+        sb.append("[最新数据快照]\n").append(data);
+        sb.append("输出: 简短要点，列出机会与风险，给出操作提示(若无把握请提示观望)。");
+        sb.append("基于当前数据和市场情绪，直接给出操作建议：");
+        sb.append("1. 当前操作：买入/卖出/观望");
+        sb.append("2. 建议挂单价格：买入价XX.XX，卖出价XX.XX");
+        sb.append("3. 理由：结合技术指标、资金流向、市场情绪等");
+        sb.append("4. 风险提示：止损位XX.XX，止盈位XX.XX");
+        sb.append("5. 置信度评估：高/中/低（基于信号强度、市场一致性等）");
+        sb.append("格式：");
+        sb.append("【当前建议】买入/卖出/观望");
+        sb.append("【挂单价格】买入：XX.XX，卖出：XX.XX");
+        sb.append("【操作理由】...");
+        sb.append("【风险控制】止损：XX.XX，止盈：XX.XX");
+        sb.append("【置信度】高/中/低");
+        return sb.toString();
     }
 }

@@ -5,6 +5,7 @@ const rateLimit = require('express-rate-limit');
 const axios = require('axios');
 const compression = require('compression');
 const morgan = require('morgan');
+const { createProxyMiddleware: proxy } = require('http-proxy-middleware');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -198,6 +199,207 @@ app.post('/api/mobile/stock/risk-assessment', async (req, res) => {
             success: false,
             message: (error.response && error.response.data && error.response.data.message) || '风险评估失败',
             code: 'RISK_ASSESSMENT_ERROR'
+        });
+    }
+});
+
+// AI 详细分析（异步） - 启动任务
+app.post('/api/mobile/ai-detailed/:stockCode/start', async (req, res) => {
+    try {
+        const { stockCode } = req.params;
+        const response = await axios.post(
+            `${STOCK_ANALYSIS_SERVICE_URL}/api/stocks/ai-detailed/${stockCode}/start`,
+            {},
+            {
+                headers: { 'Content-Type': 'application/json' },
+                timeout: 600000
+            }
+        );
+        res.json(response.data);
+    } catch (error) {
+        console.error('启动AI详细分析代理错误:', error.message);
+        res.status((error.response && error.response.status) || 500).json({
+            success: false,
+            message: (error.response && error.response.data && error.response.data.message) || '启动AI详细分析失败',
+            code: 'AI_DETAILED_START_ERROR'
+        });
+    }
+});
+
+// 盯盘：启动
+app.post('/api/mobile/monitor/start', async (req, res) => {
+    try {
+        const { stockCode, intervalMinutes, analysisId } = req.body || {};
+        const response = await axios.post(
+            `${STOCK_ANALYSIS_SERVICE_URL}/api/stocks/analysis/monitor/start`,
+            null,
+            {
+                params: { stockCode, intervalMinutes, analysisId, machineId: req.headers['x-device-fingerprint'] || 'default' },
+                timeout: 60000
+            }
+        );
+        res.json(response.data);
+    } catch (error) {
+        console.error('启动盯盘代理错误:', error.message);
+        res.status((error.response && error.response.status) || 500).json({
+            success: false,
+            message: (error.response && error.response.data && error.response.data.message) || '启动盯盘失败',
+            code: 'MONITOR_START_ERROR'
+        });
+    }
+});
+
+// 盯盘：停止
+app.post('/api/mobile/monitor/stop', async (req, res) => {
+    try {
+        const { jobId } = req.body || {};
+        const response = await axios.post(
+            `${STOCK_ANALYSIS_SERVICE_URL}/api/stocks/analysis/monitor/stop`,
+            null,
+            {
+                params: { jobId },
+                timeout: 30000
+            }
+        );
+        res.json(response.data);
+    } catch (error) {
+        console.error('停止盯盘代理错误:', error.message);
+        res.status((error.response && error.response.status) || 500).json({
+            success: false,
+            message: (error.response && error.response.data && error.response.data.message) || '停止盯盘失败',
+            code: 'MONITOR_STOP_ERROR'
+        });
+    }
+});
+
+// 盯盘：状态
+app.get('/api/mobile/monitor/status/:jobId', async (req, res) => {
+    try {
+        const { jobId } = req.params;
+        const response = await axios.get(
+            `${STOCK_ANALYSIS_SERVICE_URL}/api/stocks/analysis/monitor/status/${jobId}`,
+            { timeout: 30000 }
+        );
+        res.json(response.data);
+    } catch (error) {
+        console.error('查询盯盘状态代理错误:', error.message);
+        res.status((error.response && error.response.status) || 500).json({
+            success: false,
+            message: (error.response && error.response.data && error.response.data.message) || '查询盯盘状态失败',
+            code: 'MONITOR_STATUS_ERROR'
+        });
+    }
+});
+
+// 盯盘：股票状态
+app.get('/api/mobile/monitor/stock-status/:stockCode', async (req, res) => {
+    try {
+        const { stockCode } = req.params;
+        const response = await axios.get(
+            `${STOCK_ANALYSIS_SERVICE_URL}/api/stocks/analysis/monitor/stock-status/${stockCode}`,
+            { timeout: 30000 }
+        );
+        res.json(response.data);
+    } catch (error) {
+        console.error('查询股票盯盘状态代理错误:', error.message);
+        res.status((error.response && error.response.status) || 500).json({
+            success: false,
+            message: (error.response && error.response.data && error.response.data.message) || '查询股票盯盘状态失败',
+            code: 'MONITOR_STOCK_STATUS_ERROR'
+        });
+    }
+});
+
+// 盯盘：清理所有任务
+app.post('/api/mobile/monitor/cleanup-all', async (req, res) => {
+    try {
+        const response = await axios.post(
+            `${STOCK_ANALYSIS_SERVICE_URL}/api/stocks/analysis/monitor/cleanup-all`,
+            {},
+            { timeout: 30000 }
+        );
+        res.json(response.data);
+    } catch (error) {
+        console.error('清理所有盯盘任务代理错误:', error.message);
+        res.status((error.response && error.response.status) || 500).json({
+            success: false,
+            message: (error.response && error.response.data && error.response.data.message) || '清理盯盘任务失败',
+            code: 'MONITOR_CLEANUP_ERROR'
+        });
+    }
+});
+
+// 盯盘：今日记录
+app.get('/api/mobile/monitor/records/today/:stockCode', async (req, res) => {
+    try {
+        const { stockCode } = req.params;
+        const response = await axios.get(
+            `${STOCK_ANALYSIS_SERVICE_URL}/api/stocks/analysis/monitor/records/today/${stockCode}`,
+            { timeout: 30000 }
+        );
+        res.json(response.data);
+    } catch (error) {
+        console.error('获取今日盯盘记录代理错误:', error.message);
+        res.status((error.response && error.response.status) || 500).json({
+            success: false,
+            message: (error.response && error.response.data && error.response.data.message) || '获取盯盘记录失败',
+            code: 'MONITOR_RECORDS_ERROR'
+        });
+    }
+});
+
+// 盯盘：获取所有盯盘任务
+app.get('/api/mobile/monitor/all-jobs', async (req, res) => {
+    try {
+        const response = await axios.get(
+            `${STOCK_ANALYSIS_SERVICE_URL}/api/stocks/monitor/all-jobs`,
+            { timeout: 30000 }
+        );
+        res.json(response.data);
+    } catch (error) {
+        console.error('获取所有盯盘任务代理错误:', error.message);
+        res.status((error.response && error.response.status) || 500).json({
+            success: false,
+            message: (error.response && error.response.data && error.response.data.message) || '获取盯盘任务失败',
+            code: 'MONITOR_ALL_JOBS_ERROR'
+        });
+    }
+});
+
+// AI 详细分析（异步） - 查询状态
+app.get('/api/mobile/ai-detailed/status/:taskId', async (req, res) => {
+    try {
+        const { taskId } = req.params;
+        const response = await axios.get(
+            `${STOCK_ANALYSIS_SERVICE_URL}/api/stocks/ai-detailed/status/${taskId}`,
+            { timeout: 600000 }
+        );
+        res.json(response.data);
+    } catch (error) {
+        console.error('查询AI详细分析状态代理错误:', error.message);
+        res.status((error.response && error.response.status) || 500).json({
+            success: false,
+            message: (error.response && error.response.data && error.response.data.message) || '查询AI分析状态失败',
+            code: 'AI_DETAILED_STATUS_ERROR'
+        });
+    }
+});
+
+// AI 详细分析（同步获取结果，兼容）
+app.get('/api/mobile/ai-detailed/:stockCode', async (req, res) => {
+    try {
+        const { stockCode } = req.params;
+        const response = await axios.get(
+            `${STOCK_ANALYSIS_SERVICE_URL}/api/stocks/ai-detailed/${stockCode}`,
+            { timeout: 600000 }
+        );
+        res.json(response.data);
+    } catch (error) {
+        console.error('获取AI详细分析结果代理错误:', error.message);
+        res.status((error.response && error.response.status) || 500).json({
+            success: false,
+            message: (error.response && error.response.data && error.response.data.message) || '获取AI详细分析失败',
+            code: 'AI_DETAILED_RESULT_ERROR'
         });
     }
 });
@@ -779,6 +981,24 @@ app.get('/api/recommendations/by-date/:date', async (req, res) => {
         }
     }
 });
+
+// 股票分析相关接口
+app.use('/api/stock-analysis', proxy({
+  target: STOCK_ANALYSIS_SERVICE_URL,
+  changeOrigin: true,
+  pathRewrite: {
+    '^/api/stock-analysis': '/api/stock-analysis'
+  }
+}));
+
+// AI详细分析相关接口
+app.use('/api/stocks', proxy({
+  target: STOCK_ANALYSIS_SERVICE_URL,
+  changeOrigin: true,
+  pathRewrite: {
+    '^/api/stocks': '/api/stocks'
+  }
+}));
 
 // 错误处理中间件
 app.use((error, req, res, next) => {

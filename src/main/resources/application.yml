@@ -1,5 +1,7 @@
 server:
   port: 8080
+  shutdown: graceful
+  grace-period: 30s
 
 spring:
   application:
@@ -50,7 +52,10 @@ deepseek:
 
 tavily:
   api:
-    key: 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
+    # 支持多个API key，用逗号分隔，系统会自动切换
+    keys: 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,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
+    # 单个key配置（已废弃，保留兼容性）
+    key: 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
 
 # Python脚本路径配置
 python:

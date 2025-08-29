@@ -462,6 +462,126 @@ class ApiService {
       throw error;
     }
   }
+
+  /**
+   * 获取AI详细分析数据
+   */
+  async getAIDetailedAnalysis(stockCode) {
+    try {
+      // 通过移动端网关路径访问
+      const response = await this.client.get(`/api/mobile/ai-detailed/${stockCode}`);
+      return response.data;
+    } catch (error) {
+      console.error('AI详细分析请求失败:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * 启动AI详细分析（异步）
+   */
+  async startAIDetailedAnalysis(stockCode) {
+    try {
+      // 通过移动端网关路径访问
+      const response = await this.client.post(`/api/mobile/ai-detailed/${stockCode}/start`);
+      return response.data;
+    } catch (error) {
+      console.error('启动AI详细分析失败:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * 查询AI详细分析状态
+   */
+  async getAIAnalysisStatus(taskId) {
+    try {
+      // 通过移动端网关路径访问
+      const response = await this.client.get(`/api/mobile/ai-detailed/status/${taskId}`);
+      return response.data;
+    } catch (error) {
+      console.error('查询AI分析状态失败:', error);
+      throw error;
+    }
+  }
+
+  // ====== 盘中盯盘 ======
+  async startMonitoring(stockCode, intervalMinutes, analysisId) {
+    try {
+      const response = await this.client.post('/api/mobile/monitor/start', {
+        stockCode,
+        intervalMinutes,
+        analysisId
+      });
+      return response.data;
+    } catch (error) {
+      console.error('启动盯盘失败:', error);
+      throw error;
+    }
+  }
+
+  async stopMonitoring(jobId) {
+    try {
+      const response = await this.client.post('/api/mobile/monitor/stop', { jobId });
+      return response.data;
+    } catch (error) {
+      console.error('停止盯盘失败:', error);
+      throw error;
+    }
+  }
+
+  async getMonitoringStatus(jobId) {
+    try {
+      const response = await this.client.get(`/api/mobile/monitor/status/${jobId}`);
+      return response.data;
+    } catch (error) {
+      console.error('查询盯盘状态失败:', error);
+      throw error;
+    }
+  }
+
+  async getStockMonitoringStatus(stockCode) {
+    try {
+      const response = await this.client.get(`/api/mobile/monitor/stock-status/${stockCode}`);
+      return response.data;
+    } catch (error) {
+      console.error('获取股票监控状态失败:', error);
+      throw error;
+    }
+  }
+
+  async getTodayMonitoringRecords(stockCode) {
+    try {
+      const response = await this.client.get(`/api/mobile/monitor/records/today/${stockCode}`);
+      return response.data;
+    } catch (error) {
+      console.error('获取今日盯盘记录失败:', error);
+      throw error;
+    }
+  }
+
+  async cleanupAllMonitoringJobs() {
+    try {
+      const response = await this.client.post('/api/mobile/monitor/cleanup-all');
+      return response.data;
+    } catch (error) {
+      console.error('清理所有盯盘任务失败:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * 获取所有正在盯盘的任务
+   */
+  async getAllMonitoringJobs() {
+    try {
+      const response = await this.client.get('/api/mobile/monitor/all-jobs');
+      return response.data;
+    } catch (error) {
+      console.error('获取所有盯盘任务失败:', error);
+      return [];
+    }
+  }
 }
 
 // 导出单例实例

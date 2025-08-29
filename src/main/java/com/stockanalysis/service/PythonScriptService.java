@@ -387,6 +387,261 @@ public class PythonScriptService {
     }
 
     /**
+     * 获取大盘当日分时数据
+     */
+    public List<Map<String, Object>> getMarketTrendsToday(String stockCode) {
+        try {
+            String result = executePythonScript("EastMoneyMarketStockTrendsToday.py", stockCode);
+            if (result == null || result.trim().isEmpty()) {
+                log.warn("获取大盘当日分时数据失败: 脚本返回空结果");
+                return new ArrayList<>();
+            }
+
+            // 尝试解析JSON，处理可能的包装结构
+            ObjectMapper mapper = new ObjectMapper();
+            Object parsed = mapper.readValue(result, Object.class);
+            
+            List<Map<String, Object>> marketData;
+            
+            if (parsed instanceof List) {
+                // 直接是数组
+                marketData = (List<Map<String, Object>>) parsed;
+            } else if (parsed instanceof Map) {
+                // 是包装对象，尝试提取数据
+                @SuppressWarnings("unchecked")
+                Map<String, Object> wrapper = (Map<String, Object>) parsed;
+                
+                // 尝试常见的键名
+                Object data = wrapper.get("data");
+                if (data == null) {
+                    data = wrapper.get("result");
+                }
+                if (data == null) {
+                    data = wrapper.get("market_data");
+                }
+                if (data == null) {
+                    data = wrapper.get("trends");
+                }
+                
+                if (data instanceof List) {
+                    marketData = (List<Map<String, Object>>) data;
+                } else {
+                    log.warn("无法从包装对象中提取大盘分时数据，键: {}", wrapper.keySet());
+                    return new ArrayList<>();
+                }
+            } else {
+                log.warn("获取大盘当日分时数据失败: 未知的数据类型 {}", parsed.getClass().getSimpleName());
+                return new ArrayList<>();
+            }
+
+            // 转换字段名为中文
+            return convertMarketTrendsToChinese(marketData);
+            
+        } catch (Exception e) {
+            log.error("获取大盘当日分时数据失败: {}", e.getMessage(), e);
+            return new ArrayList<>();
+        }
+    }
+
+    /**
+     * 获取板块当日分时数据
+     */
+    public List<Map<String, Object>> getBoardTrendsToday(String stockCode) {
+        try {
+            String result = executePythonScript("EastMoneyBoardStockTrendsToday.py", stockCode);
+            if (result == null || result.trim().isEmpty()) {
+                log.warn("获取板块当日分时数据失败: 脚本返回空结果");
+                return new ArrayList<>();
+            }
+
+            // 尝试解析JSON，处理可能的包装结构
+            ObjectMapper mapper = new ObjectMapper();
+            Object parsed = mapper.readValue(result, Object.class);
+            
+            List<Map<String, Object>> boardData;
+            
+            if (parsed instanceof List) {
+                // 直接是数组
+                boardData = (List<Map<String, Object>>) parsed;
+            } else if (parsed instanceof Map) {
+                // 是包装对象，尝试提取数据
+                @SuppressWarnings("unchecked")
+                Map<String, Object> wrapper = (Map<String, Object>) parsed;
+                
+                // 尝试常见的键名
+                Object data = wrapper.get("data");
+                if (data == null) {
+                    data = wrapper.get("result");
+                }
+                if (data == null) {
+                    data = wrapper.get("board_data");
+                }
+                if (data == null) {
+                    data = wrapper.get("trends");
+                }
+                
+                if (data instanceof List) {
+                    boardData = (List<Map<String, Object>>) data;
+                } else {
+                    log.warn("无法从包装对象中提取板块分时数据，键: {}", wrapper.keySet());
+                    return new ArrayList<>();
+                }
+            } else {
+                log.warn("获取板块当日分时数据失败: 未知的数据类型 {}", parsed.getClass().getSimpleName());
+                return new ArrayList<>();
+            }
+
+            // 转换字段名为中文
+            return convertBoardTrendsToChinese(boardData);
+            
+        } catch (Exception e) {
+            log.error("获取板块当日分时数据失败: {}", e.getMessage(), e);
+            return new ArrayList<>();
+        }
+    }
+
+    /**
+     * 获取个股当日分时数据
+     */
+    public List<Map<String, Object>> getStockTrendsToday(String stockCode) {
+        try {
+            String result = executePythonScript("EastMoneyStockTrendsToday.py", stockCode);
+            if (result == null || result.trim().isEmpty()) {
+                log.warn("获取个股当日分时数据失败: 脚本返回空结果");
+                return new ArrayList<>();
+            }
+
+            // 尝试解析JSON，处理可能的包装结构
+            ObjectMapper mapper = new ObjectMapper();
+            Object parsed = mapper.readValue(result, Object.class);
+            
+            List<Map<String, Object>> stockData;
+            
+            if (parsed instanceof List) {
+                // 直接是数组
+                stockData = (List<Map<String, Object>>) parsed;
+            } else if (parsed instanceof Map) {
+                // 是包装对象，尝试提取数据
+                @SuppressWarnings("unchecked")
+                Map<String, Object> wrapper = (Map<String, Object>) parsed;
+                
+                // 尝试常见的键名
+                Object data = wrapper.get("data");
+                if (data == null) {
+                    data = wrapper.get("result");
+                }
+                if (data == null) {
+                    data = wrapper.get("stock_data");
+                }
+                if (data == null) {
+                    data = wrapper.get("trends");
+                }
+                
+                if (data instanceof List) {
+                    stockData = (List<Map<String, Object>>) data;
+                } else {
+                    log.warn("无法从包装对象中提取个股分时数据，键: {}", wrapper.keySet());
+                    return new ArrayList<>();
+                }
+            } else {
+                log.warn("获取个股当日分时数据失败: 未知的数据类型 {}", parsed.getClass().getSimpleName());
+                return new ArrayList<>();
+            }
+
+            // 转换字段名为中文
+            return convertStockTrendsToChinese(stockData);
+            
+        } catch (Exception e) {
+            log.error("获取个股当日分时数据失败: {}", e.getMessage(), e);
+            return new ArrayList<>();
+        }
+    }
+
+    /**
+     * 转换大盘分时数据字段名为中文
+     */
+    private List<Map<String, Object>> convertMarketTrendsToChinese(List<Map<String, Object>> marketData) {
+        if (marketData == null || marketData.isEmpty()) {
+            return marketData;
+        }
+        
+        List<Map<String, Object>> converted = new ArrayList<>();
+        for (Map<String, Object> item : marketData) {
+            Map<String, Object> convertedItem = new HashMap<>();
+            
+            // 转换字段名
+            convertedItem.put("时间", item.get("t"));
+            convertedItem.put("开盘价", item.get("o"));
+            convertedItem.put("当前价", item.get("p"));
+            convertedItem.put("最高价", item.get("h"));
+            convertedItem.put("最低价", item.get("l"));
+            convertedItem.put("成交量", item.get("v"));
+            convertedItem.put("成交额", item.get("tu"));
+            convertedItem.put("均价", item.get("avg"));
+            
+            converted.add(convertedItem);
+        }
+        
+        return converted;
+    }
+
+    /**
+     * 转换板块分时数据字段名为中文
+     */
+    private List<Map<String, Object>> convertBoardTrendsToChinese(List<Map<String, Object>> boardData) {
+        if (boardData == null || boardData.isEmpty()) {
+            return boardData;
+        }
+        
+        List<Map<String, Object>> converted = new ArrayList<>();
+        for (Map<String, Object> item : boardData) {
+            Map<String, Object> convertedItem = new HashMap<>();
+            
+            // 转换字段名
+            convertedItem.put("时间", item.get("t"));
+            convertedItem.put("开盘价", item.get("o"));
+            convertedItem.put("当前价", item.get("p"));
+            convertedItem.put("最高价", item.get("h"));
+            convertedItem.put("最低价", item.get("l"));
+            convertedItem.put("成交量", item.get("v"));
+            convertedItem.put("成交额", item.get("tu"));
+            convertedItem.put("均价", item.get("avg"));
+            
+            converted.add(convertedItem);
+        }
+        
+        return converted;
+    }
+
+    /**
+     * 转换个股分时数据字段名为中文
+     */
+    private List<Map<String, Object>> convertStockTrendsToChinese(List<Map<String, Object>> stockData) {
+        if (stockData == null || stockData.isEmpty()) {
+            return stockData;
+        }
+        
+        List<Map<String, Object>> converted = new ArrayList<>();
+        for (Map<String, Object> item : stockData) {
+            Map<String, Object> convertedItem = new HashMap<>();
+            
+            // 转换字段名
+            convertedItem.put("时间", item.get("t"));
+            convertedItem.put("开盘价", item.get("o"));
+            convertedItem.put("当前价", item.get("p"));
+            convertedItem.put("最高价", item.get("h"));
+            convertedItem.put("最低价", item.get("l"));
+            convertedItem.put("成交量", item.get("v"));
+            convertedItem.put("成交额", item.get("tu"));
+            convertedItem.put("均价", item.get("avg"));
+            
+            converted.add(convertedItem);
+        }
+        
+        return converted;
+    }
+
+    /**
      * 计算技术指标
      */
     public Map<String, Object> calculateTechnicalIndicators(List<Map<String, Object>> klineData) {
@@ -578,6 +833,37 @@ public class PythonScriptService {
     }
 
     /**
+     * 获取当日资金流向数据（使用 EastMoneyFundFlowToday.py），并将字段尽量中文化
+     */
+    public List<Map<String, Object>> getMoneyFlowToday(String stockCode) {
+        try {
+            String result = executePythonScript("EastMoneyFundFlowToday.py", stockCode);
+            if (result == null || result.isEmpty()) {
+                return new ArrayList<>();
+            }
+            result = cleanJsonString(result);
+            List<Map<String, Object>> raw = objectMapper.readValue(result, new TypeReference<List<Map<String, Object>>>() {});
+
+            // 尝试中文映射（若脚本已是中文键将保持原样）
+            List<Map<String, Object>> mapped = new ArrayList<>();
+            for (Map<String, Object> item : raw) {
+                Map<String, Object> m = new HashMap<>();
+                Object type = item.getOrDefault("type", item.getOrDefault("资金类型", null));
+                m.put("资金类型", type);
+                Object net = item.getOrDefault("net", item.getOrDefault("净流入额（万元）", null));
+                m.put("净流入额（万元）", net);
+                Object ratio = item.getOrDefault("ratio", item.getOrDefault("净占比（%）", null));
+                m.put("净占比（%）", ratio);
+                mapped.add(m);
+            }
+            return mapped;
+        } catch (Exception e) {
+            log.warn("获取当日资金流向数据失败: {}，返回空列表", e.getMessage());
+            return new ArrayList<>();
+        }
+    }
+
+    /**
      * 获取融资融券数据
      */
     public List<Map<String, Object>> getMarginTradingData(String stockCode) {
@@ -620,41 +906,58 @@ public class PythonScriptService {
      * 获取分时数据精炼分析
      */
     public Map<String, Object> getIntradayAnalysis(String stockCode) {
+        Map<String, Object> analysisResult = new HashMap<>();
+        
         try {
             log.debug("开始获取股票 {} 的分时数据分析", stockCode);
             String result = executePythonScript("IntradayAnalysis.py", stockCode);
             
             // 验证JSON格式
-            if (result == null || result.trim().isEmpty()) {
-                log.warn("股票 {} 没有分时数据，返回空结果", stockCode);
-                return new HashMap<>(); // 返回空结果而不是报错
+            if (result != null && !result.trim().isEmpty()) {
+                // 清理JSON字符串
+                result = cleanJsonString(result);
+                
+                try {
+                    Map<String, Object> intradayData = objectMapper.readValue(result, new TypeReference<Map<String, Object>>() {});
+                    
+                    // 检查是否有错误
+                    if (intradayData.containsKey("error")) {
+                        String errorMsg = (String) intradayData.get("error");
+                        log.warn("股票 {} 分时数据分析有错误: {}，但继续获取基础数据", stockCode, errorMsg);
+                        // 不抛出异常，继续执行
+                    } else {
+                        // 分时数据获取成功，合并到结果中
+                        analysisResult.putAll(intradayData);
+                        log.debug("股票 {} 分时数据获取成功", stockCode);
+                    }
+                } catch (Exception parseEx) {
+                    log.warn("股票 {} 分时数据JSON解析失败: {}，但继续获取基础数据", stockCode, parseEx.getMessage());
+                    // 不抛出异常，继续执行
+                }
+            } else {
+                log.warn("股票 {} 没有分时数据，但继续获取基础数据", stockCode);
             }
             
-            // 清理JSON字符串
-            result = cleanJsonString(result);
-            
-            Map<String, Object> analysisResult = objectMapper.readValue(result, new TypeReference<Map<String, Object>>() {});
-            
-            // 检查是否有错误
-            if (analysisResult.containsKey("error")) {
-                String errorMsg = (String) analysisResult.get("error");
-                log.warn("股票 {} 分时数据分析有错误: {}，抛出异常", stockCode, errorMsg);
-                throw new RuntimeException("分时数据分析失败: " + errorMsg);
-            }
-            
-            // 获取股票基础数据
+        } catch (Exception e) {
+            log.warn("获取股票 {} 分时数据分析失败: {}，但继续获取基础数据", stockCode, e.getMessage());
+            // 不抛出异常，继续执行
+        }
+        
+        // 无论分时数据是否成功，都尝试获取基础数据
+        try {
             Map<String, Object> basicData = getStockBasicData(stockCode);
             if (basicData != null && !basicData.isEmpty()) {
                 analysisResult.put("stockBasic", basicData);
+                log.debug("股票 {} 基础数据获取成功", stockCode);
+            } else {
+                log.warn("股票 {} 基础数据获取失败或为空", stockCode);
             }
-            
-            log.debug("分时数据分析完成，股票代码: {}", stockCode);
-            return analysisResult;
-            
-        } catch (Exception e) {
-            log.warn("获取股票 {} 分时数据分析失败: {}，抛出异常", stockCode, e.getMessage());
-            throw new RuntimeException("获取分时数据分析失败: " + e.getMessage(), e);
+        } catch (Exception basicEx) {
+            log.warn("获取股票 {} 基础数据时发生异常: {}，但继续返回已获取的数据", stockCode, basicEx.getMessage());
         }
+        
+        log.debug("分时数据分析完成，股票代码: {}，结果包含 {} 个字段", stockCode, analysisResult.size());
+        return analysisResult;
     }
     
     /**

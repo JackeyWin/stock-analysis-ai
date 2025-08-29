@@ -3,6 +3,7 @@ package com.stockanalysis.tools;
 import dev.langchain4j.agent.tool.Tool;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import com.stockanalysis.config.TavilyApiKeyManager;
 
 import java.io.IOException;
 import java.net.URI;
@@ -32,11 +33,13 @@ public class MarketResearchTools {
 
     private final HttpClient httpClient;
     private final String tavilyApiKey;
+    private final TavilyApiKeyManager tavilyApiKeyManager;
     private final StockDataTool stockDataTool;
 
     // 默认构造函数，用于Spring Bean初始化
     public MarketResearchTools() {
         this.tavilyApiKey = "";
+        this.tavilyApiKeyManager = null;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
                 .build();
@@ -46,6 +49,17 @@ public class MarketResearchTools {
     // 带参数的构造函数，用于手动创建实例
     public MarketResearchTools(String tavilyApiKey) {
         this.tavilyApiKey = tavilyApiKey;
+        this.tavilyApiKeyManager = null;
+        this.httpClient = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(10))
+                .build();
+        this.stockDataTool = null;
+    }
+
+    // 带TavilyApiKeyManager参数的构造函数，用于Spring注入
+    public MarketResearchTools(TavilyApiKeyManager tavilyApiKeyManager) {
+        this.tavilyApiKey = "";
+        this.tavilyApiKeyManager = tavilyApiKeyManager;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
                 .build();
@@ -55,6 +69,7 @@ public class MarketResearchTools {
     // 带StockDataTool参数的构造函数，用于Spring注入
     public MarketResearchTools(String tavilyApiKey, StockDataTool stockDataTool) {
         this.tavilyApiKey = tavilyApiKey;
+        this.tavilyApiKeyManager = null;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
                 .build();
@@ -94,41 +109,9 @@ public class MarketResearchTools {
         }
 
         log.info("🌐 开始调用Tavily API搜索行业趋势");
-        String api = "https://api.tavily.com/search";
-        String body = "{" +
-                jsonPair("api_key", tavilyApiKey) + "," +
-                jsonPair("query", q) + "," +
-                jsonPair("search_depth", "basic") + "," +
-                jsonPair("max_results", String.valueOf(limit)) +
-                "}";
-        log.debug("📡 API请求体: {}", body);
-
-        try {
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(api))
-                    .header("Content-Type", "application/json")
-                    .timeout(Duration.ofSeconds(20))
-                    .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
-                    .build();
-
-            log.info("🚀 发送HTTP请求到Tavily API");
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-            log.info("📥 收到Tavily响应: 状态码={}, 响应长度={}", response.statusCode(), response.body().length());
-            
-            if (response.statusCode() >= 200 && response.statusCode() < 300) {
-                log.info("✅ Tavily API调用成功，开始解析结果");
-                String result = extractTavilyResults(response.body(), limit, "行业趋势");
+        String result = callTavilyApi(q, limit, "行业趋势", null);
                 log.info("📊 行业趋势搜索结果解析完成，结果长度: {}", result.length());
                 return result;
-            }
-            log.warn("❌ Tavily 返回非 2xx：{} - {}", response.statusCode(), response.body());
-            return "【联网搜索失败】Tavily响应异常，稍后重试。";
-        } catch (IOException | InterruptedException e) {
-            log.error("💥 Tavily 搜索失败: {}", e.getMessage(), e);
-            return "【联网搜索失败】" + e.getMessage();
-        } finally {
-            log.info("🏁 AI调用工具: searchIndustryTrends - 执行完成");
-        }
     }
 
     /**
@@ -161,42 +144,9 @@ public class MarketResearchTools {
         log.info("🌐 构建政策搜索查询: '{}'", query);
 
         log.info("🌐 开始调用Tavily API搜索政策更新");
-        String api = "https://api.tavily.com/search";
-        String body = "{" +
-                jsonPair("api_key", tavilyApiKey) + "," +
-                jsonPair("query", query) + "," +
-                jsonPair("search_depth", "basic") + "," +
-                jsonPair("max_results", String.valueOf(limit)) + "," +
-                jsonPair("time_range", "month") +
-                "}";
-        log.debug("📡 API请求体: {}", body);
-
-        try {
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(api))
-                    .header("Content-Type", "application/json")
-                    .timeout(Duration.ofSeconds(20))
-                    .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
-                    .build();
-
-            log.info("🚀 发送HTTP请求到Tavily API");
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-            log.info("📥 收到Tavily响应: 状态码={}, 响应长度={}", response.statusCode(), response.body().length());
-            
-            if (response.statusCode() >= 200 && response.statusCode() < 300) {
-                log.info("✅ Tavily API调用成功，开始解析结果");
-                String result = extractTavilyResults(response.body(), limit, "政策更新");
+        String result = callTavilyApi(query, limit, "政策更新", "month");
                 log.info("📊 政策更新搜索结果解析完成，结果长度: {}", result.length());
                 return result;
-            }
-            log.warn("❌ Tavily 返回非 2xx：{} - {}", response.statusCode(), response.body());
-            return "【联网搜索失败】Tavily响应异常，稍后重试。";
-        } catch (IOException | InterruptedException e) {
-            log.error("💥 Tavily 搜索失败: {}", e.getMessage(), e);
-            return "【联网搜索失败】" + e.getMessage();
-        } finally {
-            log.info("🏁 AI调用工具: searchPolicyUpdates - 执行完成");
-        }
     }
 
     /**
@@ -280,41 +230,9 @@ public class MarketResearchTools {
         }
 
         log.info("🌐 开始调用Tavily API搜索宏观经济影响");
-        String api = "https://api.tavily.com/search";
-        String body = "{" +
-                jsonPair("api_key", tavilyApiKey) + "," +
-                jsonPair("query", q) + "," +
-                jsonPair("search_depth", "basic") + "," +
-                jsonPair("max_results", String.valueOf(limit)) +
-                "}";
-        log.debug("📡 API请求体: {}", body);
-
-        try {
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(api))
-                    .header("Content-Type", "application/json")
-                    .timeout(Duration.ofSeconds(20))
-                    .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
-                    .build();
-
-            log.info("🚀 发送HTTP请求到Tavily API");
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-            log.info("📥 收到Tavily响应: 状态码={}, 响应长度={}", response.statusCode(), response.body().length());
-            
-            if (response.statusCode() >= 200 && response.statusCode() < 300) {
-                log.info("✅ Tavily API调用成功，开始解析结果");
-                String result = extractTavilyResults(response.body(), limit, "宏观经济影响");
+        String result = callTavilyApi(q, limit, "宏观经济影响", null);
                 log.info("📊 宏观经济影响搜索结果解析完成，结果长度: {}", result.length());
                 return result;
-            }
-            log.warn("❌ Tavily 返回非 2xx：{} - {}", response.statusCode(), response.body());
-            return "【联网搜索失败】Tavily响应异常，稍后重试。";
-        } catch (IOException | InterruptedException e) {
-            log.error("💥 Tavily 搜索失败: {}", e.getMessage(), e);
-            return "【联网搜索失败】" + e.getMessage();
-        } finally {
-            log.info("🏁 AI调用工具: searchMacroEconomyImpact - 执行完成");
-        }
     }
 
     /**
@@ -339,41 +257,9 @@ public class MarketResearchTools {
         }
 
         log.info("🌐 开始调用Tavily API搜索行业投资机会和风险");
-        String api = "https://api.tavily.com/search";
-        String body = "{" +
-                jsonPair("api_key", tavilyApiKey) + "," +
-                jsonPair("query", q) + "," +
-                jsonPair("search_depth", "basic") + "," +
-                jsonPair("max_results", String.valueOf(limit)) +
-                "}";
-        log.debug("📡 API请求体: {}", body);
-
-        try {
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(api))
-                    .header("Content-Type", "application/json")
-                    .timeout(Duration.ofSeconds(20))
-                    .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
-                    .build();
-
-            log.info("🚀 发送HTTP请求到Tavily API");
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-            log.info("📥 收到Tavily响应: 状态码={}, 响应长度={}", response.statusCode(), response.body().length());
-            
-            if (response.statusCode() >= 200 && response.statusCode() < 300) {
-                log.info("✅ Tavily API调用成功，开始解析结果");
-                String result = extractTavilyResults(response.body(), limit, "行业投资机会和风险");
+        String result = callTavilyApi(q, limit, "行业投资机会和风险", null);
                 log.info("📊 行业投资机会和风险搜索结果解析完成，结果长度: {}", result.length());
                 return result;
-            }
-            log.warn("❌ Tavily 返回非 2xx：{} - {}", response.statusCode(), response.body());
-            return "【联网搜索失败】Tavily响应异常，稍后重试。";
-        } catch (IOException | InterruptedException e) {
-            log.error("💥 Tavily 搜索失败: {}", e.getMessage(), e);
-            return "【联网搜索失败】" + e.getMessage();
-        } finally {
-            log.info("🏁 AI调用工具: searchIndustryOpportunitiesAndRisks - 执行完成");
-        }
     }
 
     /**
@@ -415,7 +301,92 @@ public class MarketResearchTools {
     }
 
     private boolean hasTavily() {
+        if (tavilyApiKeyManager != null && tavilyApiKeyManager.hasAvailableKeys()) {
+            return true;
+        }
         return tavilyApiKey != null && !tavilyApiKey.isBlank();
+    }
+
+    /**
+     * 获取当前可用的API key
+     */
+    private String getCurrentApiKey() {
+        if (tavilyApiKeyManager != null && tavilyApiKeyManager.hasAvailableKeys()) {
+            return tavilyApiKeyManager.getCurrentApiKey();
+        }
+        return tavilyApiKey;
+    }
+
+    /**
+     * 调用Tavily API，支持自动重试和key切换
+     */
+    private String callTavilyApi(String query, int limit, String searchType, String timeRange) {
+        int maxRetries = tavilyApiKeyManager != null ? tavilyApiKeyManager.getAvailableKeyCount() : 1;
+        int retryCount = 0;
+        
+        while (retryCount < maxRetries) {
+            try {
+                String apiKey = getCurrentApiKey();
+                if (apiKey == null || apiKey.isEmpty()) {
+                    log.error("❌ 没有可用的Tavily API key");
+                    return "【联网搜索失败】未配置Tavily API key";
+                }
+
+                String api = "https://api.tavily.com/search";
+                String body = "{" +
+                        jsonPair("api_key", apiKey) + "," +
+                        jsonPair("query", query) + "," +
+                        jsonPair("search_depth", "basic") + "," +
+                        jsonPair("max_results", String.valueOf(limit));
+                
+                if (timeRange != null && !timeRange.isEmpty()) {
+                    body += "," + jsonPair("time_range", timeRange);
+                }
+                body += "}";
+
+                log.debug("📡 API请求体: {}", body);
+
+                HttpRequest request = HttpRequest.newBuilder()
+                        .uri(URI.create(api))
+                        .header("Content-Type", "application/json")
+                        .timeout(Duration.ofSeconds(20))
+                        .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
+                        .build();
+
+                log.info("🚀 发送HTTP请求到Tavily API (尝试 {}/{})", retryCount + 1, maxRetries);
+                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+                log.info("📥 收到Tavily响应: 状态码={}, 响应长度={}", response.statusCode(), response.body().length());
+                
+                if (response.statusCode() >= 200 && response.statusCode() < 300) {
+                    log.info("✅ Tavily API调用成功，开始解析结果");
+                    return extractTavilyResults(response.body(), limit, searchType);
+                }
+                
+                // 处理432错误（API key限制），自动切换key
+                if (response.statusCode() == 432) {
+                    log.warn("⚠️ Tavily API返回432错误（API key限制），尝试切换key");
+                    if (tavilyApiKeyManager != null) {
+                        tavilyApiKeyManager.switchToNextKey();
+                        retryCount++;
+                        continue;
+                    }
+                }
+                
+                log.warn("❌ Tavily 返回非 2xx：{} - {}", response.statusCode(), response.body());
+                return "【联网搜索失败】Tavily响应异常，稍后重试。";
+                
+            } catch (IOException | InterruptedException e) {
+                log.error("💥 Tavily 搜索失败: {}", e.getMessage(), e);
+                if (retryCount < maxRetries - 1) {
+                    log.info("🔄 尝试重试 ({}/{})", retryCount + 1, maxRetries);
+                    retryCount++;
+                    continue;
+                }
+                return "【联网搜索失败】" + e.getMessage();
+            }
+        }
+        
+        return "【联网搜索失败】所有API key都已尝试，请稍后重试";
     }
 
     private String safe(String v) {
@@ -557,30 +528,15 @@ public class MarketResearchTools {
             // 构建查询字符串
             String query = buildQueryString(country, policyArea, industry);
             
-            // 构建API请求URL
-            String api = "https://api.tavily.com/search";
-            String body = "{" +
-                    jsonPair("api_key", tavilyApiKey) + "," +
-                    jsonPair("query", query) + "," +
-                    jsonPair("include_answer", "advanced") + "," +
-                    jsonPair("max_results", String.valueOf(maxResults)) + "," +
-                    jsonPair("time_range", "day") +
-                    "}";
+            // 使用通用API调用方法，支持自动重试和key切换
+            String result = callTavilyApi(query, maxResults, "政策搜索", "day");
             
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(api))
-                    .header("Content-Type", "application/json")
-                    .timeout(Duration.ofSeconds(20))
-                    .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
-                    .build();
-            
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-            
-            if (response.statusCode() >= 200 && response.statusCode() < 300) {
-                return response.body();
-            } else {
-                return "{\"error\": \"Tavily API请求失败: " + response.statusCode() + " - " + response.body() + "\"}";
+            // 如果返回的是错误信息，尝试解析为JSON格式
+            if (result.startsWith("【联网搜索失败】")) {
+                return "{\"error\": \"" + result + "\"}";
             }
+            
+            return result;
         } catch (Exception e) {
             return "{\"error\": \"搜索政策信息时发生错误: " + e.getMessage() + "\"}";
         }

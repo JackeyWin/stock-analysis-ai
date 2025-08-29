@@ -110,7 +110,7 @@ export default function RecommendationDetailScreen({ route, navigation }) {
   };
 
   const handleAnalyzeStock = () => {
-    navigation.navigate('StockDetail', {
+    navigation.navigate('DetailedAnalysis', {
       stockCode,
       stockName,
     });

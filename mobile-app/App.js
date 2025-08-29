@@ -14,6 +14,8 @@ import SettingsScreen from './src/screens/SettingsScreen';
 import StockDetailScreen from './src/screens/StockDetailScreen';
 import RecommendationDetailScreen from './src/screens/RecommendationDetailScreen';
 import HistoryScreen from './src/screens/HistoryScreen';
+import DetailedAnalysisScreen from './src/screens/DetailedAnalysisScreen';
+import MonitoringListScreen from './src/screens/MonitoringListScreen';
 
 
 // 导入主题
@@ -120,6 +122,29 @@ function AppNavigator() {
             headerTintColor: '#fff',
           }}
         />
+        <Stack.Screen 
+          name="DetailedAnalysis" 
+          component={DetailedAnalysisScreen}
+          options={{ 
+            title: 'AI详细分析',
+            headerStyle: {
+              backgroundColor: theme.colors.primary,
+            },
+            headerTintColor: '#fff',
+          }}
+        />
+        <Stack.Screen 
+          name="MonitoringList" 
+          component={MonitoringListScreen}
+          options={{ 
+            title: '盯盘管理',
+            headerStyle: {
+              backgroundColor: theme.colors.primary,
+            },
+            headerTintColor: '#fff',
+          }}
+        />
+
 
       </Stack.Navigator>
     </NavigationContainer>

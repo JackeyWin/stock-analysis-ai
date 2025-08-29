@@ -645,8 +645,22 @@ public class StockScreeningService {
                 return result;
             }
             
-            // 获取财务指标数据
-            Map<String, Object> financialData = (Map<String, Object>) financialAnalysisData.get("financial_data");
+            // 获取财务指标数据（按脚本真实输出做多键兜底）
+            @SuppressWarnings("unchecked")
+            Map<String, Object> financialData = (Map<String, Object>) getMapByAnyKey(
+                financialAnalysisData,
+                "financial_data",      // 英文键
+                "财务数据",             // 中文常见
+                "财务指标",             // 直接就是指标分组
+                "data"                 // 其他可能包装
+            );
+            // 若直接就是"财务指标"分组，把其作为financialData传给后续逻辑
+            if (financialData != null && !financialData.containsKey("财务指标") && financialAnalysisData.containsKey("财务指标")) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> indicators = (Map<String, Object>) financialAnalysisData.get("财务指标");
+                financialData = new java.util.HashMap<>();
+                financialData.put("财务指标", indicators);
+            }
             if (financialData == null || financialData.isEmpty()) {
                 result.put("score", score);
                 result.put("details", "基本面评估: 财务数据为空");
@@ -700,14 +714,26 @@ public class StockScreeningService {
         double score = 5.0; // 基础分
         
         try {
-            // 获取财务指标数据
-            Map<String, Object> indicators = (Map<String, Object>) financialData.get("财务指标");
+            // 获取财务指标数据（多键兜底）
+            @SuppressWarnings("unchecked")
+            Map<String, Object> indicators = (Map<String, Object>) getMapByAnyKey(
+                financialData,
+                "财务指标",
+                "indicators",
+                "指标"
+            );
             if (indicators == null || indicators.isEmpty()) {
                 return score;
             }
             
             // 1. 毛利率评估
-            List<Map<String, Object>> grossMarginList = (List<Map<String, Object>>) indicators.get("毛利率(%)");
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> grossMarginList = (List<Map<String, Object>>) getByAnyKey(
+                indicators,
+                "毛利率(%)",
+                "毛利率",
+                "GrossMargin"
+            );
             if (grossMarginList != null && !grossMarginList.isEmpty()) {
                 // 获取最新一期数据
                 Map<String, Object> latest = grossMarginList.get(0);
@@ -726,7 +752,13 @@ public class StockScreeningService {
             }
             
             // 2. 净利率评估
-            List<Map<String, Object>> netMarginList = (List<Map<String, Object>>) indicators.get("净利率(%)");
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> netMarginList = (List<Map<String, Object>>) getByAnyKey(
+                indicators,
+                "净利率(%)",
+                "净利率",
+                "NetMargin"
+            );
             if (netMarginList != null && !netMarginList.isEmpty()) {
                 // 获取最新一期数据
                 Map<String, Object> latest = netMarginList.get(0);
@@ -745,7 +777,14 @@ public class StockScreeningService {
             }
             
             // 3. ROE评估
-            List<Map<String, Object>> roeList = (List<Map<String, Object>>) indicators.get("净资产收益率(加权)(%)");
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> roeList = (List<Map<String, Object>>) getByAnyKey(
+                indicators,
+                "净资产收益率(加权)(%)",
+                "ROE(%)",
+                "净资产收益率(%)",
+                "ROE"
+            );
             if (roeList != null && !roeList.isEmpty()) {
                 // 获取最新一期数据
                 Map<String, Object> latest = roeList.get(0);
@@ -779,14 +818,24 @@ public class StockScreeningService {
         double score = 5.0; // 基础分
         
         try {
-            // 获取财务指标数据
-            Map<String, Object> indicators = (Map<String, Object>) financialData.get("财务指标");
+            @SuppressWarnings("unchecked")
+            Map<String, Object> indicators = (Map<String, Object>) getMapByAnyKey(
+                financialData,
+                "财务指标",
+                "indicators",
+                "指标"
+            );
             if (indicators == null || indicators.isEmpty()) {
                 return score;
             }
             
             // 1. 营业收入增长率评估
-            List<Map<String, Object>> revenueList = (List<Map<String, Object>>) indicators.get("营业收入");
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> revenueList = (List<Map<String, Object>>) getFirstListByAnyKey(
+                indicators,
+                "营业收入",
+                "Revenue"
+            );
             if (revenueList != null && revenueList.size() >= 2) {
                 // 获取最新两期数据
                 Map<String, Object> latest = revenueList.get(0);
@@ -810,7 +859,12 @@ public class StockScreeningService {
             }
             
             // 2. 净利润增长率评估
-            List<Map<String, Object>> profitList = (List<Map<String, Object>>) indicators.get("净利润");
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> profitList = (List<Map<String, Object>>) getFirstListByAnyKey(
+                indicators,
+                "净利润",
+                "NetProfit"
+            );
             if (profitList != null && profitList.size() >= 2) {
                 // 获取最新两期数据
                 Map<String, Object> latest = profitList.get(0);
@@ -849,14 +903,25 @@ public class StockScreeningService {
         double score = 5.0; // 基础分
         
         try {
-            // 获取财务指标数据
-            Map<String, Object> indicators = (Map<String, Object>) financialData.get("财务指标");
+            @SuppressWarnings("unchecked")
+            Map<String, Object> indicators = (Map<String, Object>) getMapByAnyKey(
+                financialData,
+                "财务指标",
+                "indicators",
+                "指标"
+            );
             if (indicators == null || indicators.isEmpty()) {
                 return score;
             }
             
             // 1. 资产负债率评估
-            List<Map<String, Object>> debtRatioList = (List<Map<String, Object>>) indicators.get("资产负债率(%)");
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> debtRatioList = (List<Map<String, Object>>) getByAnyKey(
+                indicators,
+                "资产负债率(%)",
+                "资产负债率",
+                "DebtRatio"
+            );
             if (debtRatioList != null && !debtRatioList.isEmpty()) {
                 // 获取最新一期数据
                 Map<String, Object> latest = debtRatioList.get(0);
@@ -875,7 +940,12 @@ public class StockScreeningService {
             }
             
             // 2. 流动比率评估
-            List<Map<String, Object>> currentRatioList = (List<Map<String, Object>>) indicators.get("流动比率");
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> currentRatioList = (List<Map<String, Object>>) getByAnyKey(
+                indicators,
+                "流动比率",
+                "CurrentRatio"
+            );
             if (currentRatioList != null && !currentRatioList.isEmpty()) {
                 // 获取最新一期数据
                 Map<String, Object> latest = currentRatioList.get(0);
@@ -1389,6 +1459,33 @@ public class StockScreeningService {
                                      double goodReasonScore) {
         // 加权平均：技术面30%，基本面20%，资金面25%，利好内容调整评分25%
         return technicalScore * 0.3 + fundamentalScore * 0.2 + moneyFlowScore * 0.25 + goodReasonScore * 0.25;
+    }
+
+    // ===== 辅助读取工具（多键兜底）=====
+    private Object getByAnyKey(Map<String, Object> map, String... keys) {
+        if (map == null) return null;
+        for (String k : keys) {
+            if (map.containsKey(k)) return map.get(k);
+        }
+        return null;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> getMapByAnyKey(Map<String, Object> map, String... keys) {
+        Object v = getByAnyKey(map, keys);
+        if (v instanceof Map) {
+            return (Map<String, Object>) v;
+        }
+        return null;
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> getFirstListByAnyKey(Map<String, Object> map, String... keys) {
+        Object v = getByAnyKey(map, keys);
+        if (v instanceof List) {
+            return (List<Map<String, Object>>) v;
+        }
+        return null;
     }
 
     /**

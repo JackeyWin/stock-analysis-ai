@@ -59,6 +59,10 @@ const AnalysisTaskList = React.forwardRef(({ stockCode, onTaskComplete, onViewRe
   // 每只股票的轮询状态管理
   const stockPollingStates = useRef(new Map());
 
+  // 自定义确认对话框状态
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [taskToDelete, setTaskToDelete] = useState(null);
+
   // 暴露方法给父组件
   useImperativeHandle(ref, () => ({
     addTask,
@@ -499,6 +503,42 @@ const AnalysisTaskList = React.forwardRef(({ stockCode, onTaskComplete, onViewRe
     }
   };
 
+  // 显示删除确认对话框
+  const showDeleteConfirmDialog = (task) => {
+    setTaskToDelete(task);
+    setShowDeleteConfirm(true);
+  };
+
+  // 隐藏删除确认对话框
+  const hideDeleteConfirmDialog = () => {
+    setShowDeleteConfirm(false);
+    setTaskToDelete(null);
+  };
+
+  // 确认删除任务
+  const confirmDeleteTask = async () => {
+    if (taskToDelete) {
+      const taskId = taskToDelete.id || taskToDelete.taskId;
+      console.log('🗑️ 确认删除任务:', taskId);
+      
+      stopPolling(taskId);
+      
+      // 使用函数式更新确保获取到最新的tasks状态
+      setTasks(prevTasks => {
+        const updatedTasks = prevTasks.filter(task => task.taskId !== taskId);
+        console.log('🗑️ 删除任务后，剩余任务数:', updatedTasks.length);
+        console.log('📋 删除后任务列表:', updatedTasks.map(t => ({ taskId: t.taskId, stockCode: t.stockCode })));
+        
+        // 异步保存到本地存储
+        saveTasksToStorage(updatedTasks);
+        
+        return updatedTasks;
+      });
+    }
+    
+    hideDeleteConfirmDialog();
+  };
+
   // 删除任务
   const removeTask = async (taskId) => {
     console.log('🗑️ 开始删除任务:', taskId);
@@ -658,17 +698,7 @@ const AnalysisTaskList = React.forwardRef(({ stockCode, onTaskComplete, onViewRe
                   style={styles.deleteButton}
                   onPress={() => {
                     console.log('🖥️ Web平台删除按钮被点击，任务ID:', item.id || item.taskId);
-                    Alert.alert(
-                      '确认删除',
-                      '确定要删除这个分析任务吗？',
-                      [
-                        { text: '取消', style: 'cancel' },
-                        { text: '删除', style: 'destructive', onPress: () => {
-                          console.log('✅ Web平台确认删除任务:', item.id || item.taskId);
-                          removeTask(item.id || item.taskId);
-                        }}
-                      ]
-                    );
+                    showDeleteConfirmDialog(item);
                   }}
                 >
                 <Ionicons name="trash-outline" size={16} color="#FF3B30" />
@@ -678,17 +708,7 @@ const AnalysisTaskList = React.forwardRef(({ stockCode, onTaskComplete, onViewRe
                 style={styles.deleteButton}
                 onPress={() => {
                   console.log('🗑️ 删除按钮被点击，任务ID:', item.id || item.taskId);
-                  Alert.alert(
-                    '确认删除',
-                    '确定要删除这个分析任务吗？',
-                    [
-                      { text: '取消', style: 'cancel' },
-                      { text: '删除', style: 'destructive', onPress: () => {
-                        console.log('✅ 确认删除任务:', item.id || item.taskId);
-                        removeTask(item.id || item.taskId);
-                      }}
-                    ]
-                  );
+                  showDeleteConfirmDialog(item);
                 }}
                 activeOpacity={0.7}
               >
@@ -855,48 +875,28 @@ const AnalysisTaskList = React.forwardRef(({ stockCode, onTaskComplete, onViewRe
               )
             )}
             
-            {/* {Platform.OS === 'web' ? (
-              <Pressable 
-                style={styles.deleteButton}
-                onPress={() => {
-                  console.log('🖥️ Web平台删除按钮被点击，任务ID:', item.id || item.taskId);
-                  Alert.alert(
-                    '确认删除',
-                    '确定要删除这个分析任务吗？',
-                    [
-                      { text: '取消', style: 'cancel' },
-                      { text: '删除', style: 'destructive', onPress: () => {
-                        console.log('✅ Web平台确认删除任务:', item.id || item.task极Id);
-                        removeTask(item.id || item.taskId);
-                      }}
-                    ]
-                  );
-                }}
-              >
-                <Ionicons name="trash-outline" size={16} color="#FF3B30" />
-              </Pressable>
-            ) : (
-              <TouchableOpacity 
-                style={styles.deleteButton}
-                onPress={() => {
-                  console.log('🗑️ 删除按钮被点击，任务ID:', item.id || item.taskId);
-                  Alert.alert(
-                    '确认删除',
-                    '确定要删除这个分析任务吗？',
-                    [
-                      { text: '取消', style: 'cancel' },
-                      { text: '删除', style: 'destructive', onPress: () => {
-                        console.log('✅ 确认删除任务:', item.id || item.taskId);
-                        removeTask(item.id || item.taskId);
-                      }}
-                    ]
-                  );
-                }}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="trash-outline" size={16} color="#FF3B30" />
-              </TouchableOpacity>
-            )} */}
+                         {Platform.OS === 'web' ? (
+               <Pressable 
+                 style={styles.deleteButton}
+                 onPress={() => {
+                   console.log('🖥️ Web平台删除按钮被点击，任务ID:', item.id || item.taskId);
+                   showDeleteConfirmDialog(item);
+                 }}
+               >
+                 <Ionicons name="trash-outline" size={16} color="#FF3B30" />
+               </Pressable>
+             ) : (
+               <TouchableOpacity 
+                 style={styles.deleteButton}
+                 onPress={() => {
+                   console.log('🗑️ 删除按钮被点击，任务ID:', item.id || item.taskId);
+                   showDeleteConfirmDialog(item);
+                 }}
+                 activeOpacity={0.7}
+               >
+                 <Ionicons name="trash-outline" size={16} color="#FF3B30" />
+               </TouchableOpacity>
+             )}
           </View>
         </View>
       </View>
@@ -975,6 +975,32 @@ const AnalysisTaskList = React.forwardRef(({ stockCode, onTaskComplete, onViewRe
         }
         showsVerticalScrollIndicator={false}
       />
+
+      {/* 自定义删除确认对话框 */}
+      {showDeleteConfirm && (
+        <View style={styles.modalOverlay}>
+          <View style={styles.confirmDialog}>
+            <Text style={styles.confirmTitle}>确认删除</Text>
+            <Text style={styles.confirmMessage}>
+              确定要删除这个分析任务吗？
+            </Text>
+            <View style={styles.confirmButtons}>
+              <TouchableOpacity
+                style={[styles.confirmButton, styles.cancelButton]}
+                onPress={hideDeleteConfirmDialog}
+              >
+                <Text style={styles.cancelButtonText}>取消</Text>
+              </TouchableOpacity>
+                              <TouchableOpacity
+                  style={[styles.confirmButton, styles.confirmDeleteButton]}
+                  onPress={confirmDeleteTask}
+                >
+                  <Text style={styles.deleteButtonText}>删除</Text>
+                </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      )}
     </View>
   );
 });
@@ -1104,7 +1130,13 @@ const styles = StyleSheet.create({
     marginLeft: 4,
   },
   deleteButton: {
-    padding: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F2F2F7',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    marginLeft: 8,
   },
   emptyContainer: {
     flex: 1,
@@ -1124,6 +1156,80 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 8,
     paddingHorizontal: 32,
+  },
+  
+  // 确认对话框样式
+  modalOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-start',
+    alignItems: 'center',
+    zIndex: 1000,
+  },
+  confirmDialog: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 24,
+    marginTop: 100,
+    marginHorizontal: 20,
+    minWidth: 280,
+    maxWidth: 320,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  confirmTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1C1C1E',
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  confirmMessage: {
+    fontSize: 16,
+    color: '#666666',
+    textAlign: 'center',
+    marginBottom: 24,
+    lineHeight: 22,
+  },
+  confirmButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  confirmButton: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cancelButton: {
+    backgroundColor: '#F2F2F7',
+    borderWidth: 1,
+    borderColor: '#E5E5EA',
+  },
+  cancelButtonText: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#666666',
+  },
+  confirmDeleteButton: {
+    backgroundColor: '#FF3B30',
+    borderWidth: 1,
+    borderColor: '#FF3B30',
+  },
+  deleteButtonText: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#FFFFFF',
   },
 });
 

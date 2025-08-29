@@ -1,7 +1,11 @@
 package com.stockanalysis.repository;
 
 import com.stockanalysis.entity.StockAnalysisResultEntity;
+
+import jakarta.transaction.Transactional;
+
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -21,6 +25,11 @@ public interface StockAnalysisResultRepository extends JpaRepository<StockAnalys
      * 根据股票代码查找分析结果
      */
     List<StockAnalysisResultEntity> findByStockCode(String stockCode);
+
+    /**
+     * 根据股票代码查找最新一条记录
+     */
+    StockAnalysisResultEntity findFirstByStockCodeOrderByAnalysisTimeDesc(String stockCode);
     
     /**
      * 根据机器标识和股票代码查找分析结果
@@ -69,21 +78,28 @@ public interface StockAnalysisResultRepository extends JpaRepository<StockAnalys
     /**
      * 根据机器标识和股票代码删除分析结果
      */
+    @Modifying
+    @Transactional
     @Query("DELETE FROM StockAnalysisResultEntity s WHERE s.machineId = :machineId AND s.stockCode = :stockCode AND s.id != :excludeId")
     void deleteByMachineIdAndStockCodeExcludeId(@Param("machineId") String machineId, @Param("stockCode") String stockCode, @Param("excludeId") Long excludeId);
     
     /**
      * 根据机器标识和股票代码删除分析结果
      */
+    @Modifying
+    @Transactional
     @Query("DELETE FROM StockAnalysisResultEntity s WHERE s.machineId = :machineId AND s.stockCode = :stockCode")
     void deleteByMachineIdAndStockCode(@Param("machineId") String machineId, @Param("stockCode") String stockCode);
     
     /**
+    /**
      * 根据股票代码删除所有分析结果
      */
+    @Modifying
+    @Transactional
     @Query("DELETE FROM StockAnalysisResultEntity s WHERE s.stockCode = :stockCode")
     void deleteByStockCode(@Param("stockCode") String stockCode);
-    
+
     /**
      * 查找所有分析结果，按分析时间倒序排列
      */
